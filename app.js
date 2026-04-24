@@ -170,64 +170,19 @@ function renderJoinedSessions() {
       const isActive = session.studentId === studentId;
       const status = isActive && appState?.queue?.status ? appState.queue.status.replace("_", " ") : session.status;
       const wait = isActive && appState?.queue?.personalWaitMinutes ? `${appState.queue.personalWaitMinutes} min wait` : session.waitText;
-      const checklist = getSessionPrepChecklist(session);
 
       return `
         <div class="joined-session ${isActive ? "active" : ""}">
-          <div class="joined-session-main">
+          <div>
             <strong>${escapeHtml(session.slotLabel)}</strong>
             <span>${escapeHtml(session.course)} - ${escapeHtml(session.need)}</span>
             <small>${escapeHtml(session.joinedAt)}</small>
-            <div class="session-question">
-              <span>Question asked</span>
-              <p>${escapeHtml(session.message || "No question details provided.")}</p>
-            </div>
-            <div class="prep-checklist">
-              <div class="prep-checklist-header">
-                <span>Prep while you wait</span>
-                <strong>${checklist.length} steps</strong>
-              </div>
-              <ul>
-                ${checklist.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
-              </ul>
-            </div>
           </div>
           <span class="tag ${isActive ? "low" : "medium"}">${escapeHtml(status)} / ${escapeHtml(wait)}</span>
         </div>
       `;
     })
     .join("");
-}
-
-function getSessionPrepChecklist(session) {
-  if (Array.isArray(session.prepChecklist) && session.prepChecklist.length) {
-    return session.prepChecklist;
-  }
-
-  const text = `${session.course || ""} ${session.need || ""}`.toLowerCase();
-
-  if (text.includes("cs") || text.includes("data structures") || text.includes("debug")) {
-    return [
-      "Open your error message and note the exact line number.",
-      "Prepare the expected output next to the actual output.",
-      "Be ready to explain what you already tried.",
-      "Open the file or function where the issue happens.",
-    ];
-  }
-
-  if (text.includes("exam")) {
-    return [
-      "Pick the two exam topics you most want to review.",
-      "Bring one example problem that felt confusing.",
-      "Mark any step where your solution starts to break down.",
-    ];
-  }
-
-  return [
-    "Open the assignment, prompt, or notes you want to discuss.",
-    "Highlight the exact part where you got stuck.",
-    "Prepare one sentence about what you already tried.",
-  ];
 }
 
 function renderSlotButton(slot) {
@@ -398,8 +353,6 @@ function saveJoinedSession(entry, state) {
     slotLabel: slot ? `${slot.date}, ${slot.label}` : "Selected office-hour slot",
     course: entry.course,
     need: entry.need,
-    message: entry.message,
-    prepChecklist: entry.ai?.prepChecklist || getSessionPrepChecklist(entry),
     status: "waiting",
     waitText: `${state.queue.personalWaitMinutes || state.live.estimatedWaitMinutes} min wait`,
     joinedAt: new Date(entry.joinedAt).toLocaleString([], {

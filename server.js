@@ -263,8 +263,7 @@ async function analyzeQuestionWithGemini({ course, need, message, file, apiKey }
     "{",
     '  "summary": "one short sentence for the TA",',
     '  "estimatedHelpMinutes": number from 3 to 25,',
-    '  "confidence": "low" | "medium" | "high",',
-    '  "prepChecklist": ["3 to 5 short student-facing checklist items"]',
+    '  "confidence": "low" | "medium" | "high"',
     "}",
     "",
     `Course: ${course || "General"}`,
@@ -316,7 +315,6 @@ async function analyzeQuestionWithGemini({ course, need, message, file, apiKey }
     summary: String(parsed.summary || "Student needs office hours support.").trim().slice(0, 240),
     estimatedHelpMinutes,
     confidence,
-    prepChecklist: normalizePrepChecklist(parsed.prepChecklist, { course, need, message, file }),
     source: "gemini",
     model,
   };
@@ -370,66 +368,8 @@ function analyzeQuestionHeuristically({ course, need, message, file, source = "l
     summary: buildQuestionSummary({ course, need, message, file, reasons }),
     estimatedHelpMinutes: Math.min(22, minutes),
     confidence: message || file ? "medium" : "low",
-    prepChecklist: buildPrepChecklist({ course, need, message, file }),
     source,
   };
-}
-
-function normalizePrepChecklist(items, context) {
-  if (!Array.isArray(items)) {
-    return buildPrepChecklist(context);
-  }
-
-  const checklist = items
-    .map((item) => String(item || "").trim().replace(/\s+/g, " ").slice(0, 120))
-    .filter(Boolean)
-    .slice(0, 5);
-
-  return checklist.length >= 3 ? checklist : buildPrepChecklist(context);
-}
-
-function buildPrepChecklist({ course, need, message, file }) {
-  const text = `${course || ""} ${need || ""} ${message || ""} ${file?.name || ""}`.toLowerCase();
-  const isCoding =
-    text.includes("cs") ||
-    text.includes("code") ||
-    text.includes("debug") ||
-    text.includes("error") ||
-    text.includes("bug") ||
-    text.includes(".py") ||
-    text.includes(".java") ||
-    text.includes(".js");
-
-  if (isCoding) {
-    return [
-      "Open your error message and note the exact line number.",
-      "Prepare the expected output next to the actual output.",
-      "Be ready to explain what you already tried.",
-      file ? `Have ${file.name} open and easy to share.` : "Open the file or function where the issue happens.",
-    ];
-  }
-
-  if (text.includes("exam")) {
-    return [
-      "Pick the two exam topics you most want to review.",
-      "Bring one example problem that felt confusing.",
-      "Mark any step where your solution starts to break down.",
-    ];
-  }
-
-  if (text.includes("concept") || text.includes("proof")) {
-    return [
-      "Write the concept in your own words before your turn.",
-      "Choose one example where the idea does not click yet.",
-      "Be ready to point to the exact step or definition that feels unclear.",
-    ];
-  }
-
-  return [
-    "Open the assignment, prompt, or notes you want to discuss.",
-    "Highlight the exact part where you got stuck.",
-    "Prepare one sentence about what you already tried.",
-  ];
 }
 
 function buildQuestionSummary({ course, need, message, file, reasons }) {
@@ -677,5 +617,5 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Office Hours Queue running at http://localhost:${PORT}`);
+  console.log(`StudyLine running at http://localhost:${PORT}`);
 });
