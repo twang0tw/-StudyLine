@@ -1,0 +1,9 @@
+{
+  "name": "office-hours-queue",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI-powered office hours queue MVP",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

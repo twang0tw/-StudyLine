@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TA Dashboard | Office Hours Queue</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="ta">
+    <main class="shell">
+      <aside class="sidebar" aria-label="TA navigation">
+        <div class="brand">
+          <div class="brand-mark">OH</div>
+          <div>
+            <p class="eyebrow">TA / Staff</p>
+            <h1>Office Hours Queue</h1>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <a class="nav-item" href="student.html">Student Queue</a>
+          <a class="nav-item active" href="ta.html">TA Dashboard</a>
+          <a class="nav-item" href="index.html">Switch Role</a>
+        </nav>
+
+        <section class="panel compact">
+          <p class="panel-label">Staff Workflow</p>
+          <p>
+            Call the next student, help them, mark the visit served, and keep wait estimates accurate.
+          </p>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Staff view</p>
+            <h2>Manage the live queue and keep office hours moving.</h2>
+          </div>
+          <div class="status-pill">
+            <span class="pulse"></span>
+            <span class="signal-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+            Live queue controls
+          </div>
+        </header>
+
+        <section class="panel availability-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Availability</p>
+              <h3>Create 30-minute office-hour blocks</h3>
+            </div>
+          </div>
+          <form id="availabilityForm" class="availability-form">
+            <label>
+              Date
+              <input id="availabilityDate" type="date" />
+            </label>
+            <label>
+              Start
+              <input id="availabilityStart" type="time" step="1800" value="10:00" />
+            </label>
+            <label>
+              End
+              <input id="availabilityEnd" type="time" step="1800" value="12:00" />
+            </label>
+            <label>
+              Location
+              <input id="availabilityLocation" type="text" value="Library 204" />
+            </label>
+            <button class="primary-action" type="submit">Add Slots</button>
+          </form>
+          <div id="taSlotList" class="slot-calendar"></div>
+        </section>
+
+        <section class="hero-grid">
+          <article class="panel crowd-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Current Crowd</p>
+                <h3 id="crowdHeadline">Moderate</h3>
+              </div>
+              <span id="waitNow" class="big-number">18 min</span>
+            </div>
+            <div class="meter" aria-label="Crowd level">
+              <span id="crowdMeter"></span>
+            </div>
+            <div class="metric-row">
+              <div>
+                <p class="metric-label">Students waiting</p>
+                <strong id="studentsWaiting">6</strong>
+              </div>
+              <div>
+                <p class="metric-label">TAs active</p>
+                <strong id="tasActive">2</strong>
+              </div>
+              <div>
+                <p class="metric-label">Avg help time</p>
+                <strong id="helpTime">7 min</strong>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel current-student">
+            <p class="metric-label">Currently helping</p>
+            <h3 id="currentStudentName">No student called</h3>
+            <p id="currentStudentNeed">Call the next student when a TA is ready.</p>
+            <div class="staff-actions">
+              <button id="callNext" class="primary-action" type="button">Call Next</button>
+              <button id="markServed" class="secondary-action" type="button">Mark Served</button>
+            </div>
+          </article>
+        </section>
+
+        <section class="panel staff-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Waiting Line</p>
+              <h3>Students waiting for help</h3>
+            </div>
+            <span id="servedCount" class="forecast-note">0 served</span>
+          </div>
+          <div id="staffQueueList" class="staff-queue-list"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

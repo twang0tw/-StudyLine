@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Student Queue | Office Hours Queue</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="student">
+    <main class="shell">
+      <aside class="sidebar" aria-label="Student navigation">
+        <div class="brand">
+          <div class="brand-mark">OH</div>
+          <div>
+            <p class="eyebrow">Student</p>
+            <h1>Office Hours Queue</h1>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <a class="nav-item active" href="student.html">Student Queue</a>
+          <a class="nav-item" href="ta.html">TA Dashboard</a>
+          <a class="nav-item" href="index.html">Switch Role</a>
+        </nav>
+
+        <section class="panel compact">
+          <p class="panel-label">Accessibility Goal</p>
+          <p>
+            Help students with limited time choose better moments to get support,
+            join remotely, and avoid wasted trips.
+          </p>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Student view</p>
+            <h2>Find the fastest help before walking across campus.</h2>
+          </div>
+          <div class="status-pill">
+            <span class="pulse"></span>
+            <span class="signal-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+            Live campus data
+          </div>
+        </header>
+
+        <section class="hero-grid">
+          <article class="join-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Virtual Line</p>
+                <h3>Join before you arrive</h3>
+              </div>
+              <span id="turnBadge" class="turn-badge">Not in line</span>
+            </div>
+
+            <form id="queueForm" class="queue-form">
+              <div class="form-section">
+                <p class="metric-label">Choose office-hour time</p>
+                <div id="studentSlotCalendar" class="slot-calendar"></div>
+                <p id="selectedSlotLabel" class="selected-slot-label">Select a time slot to join.</p>
+              </div>
+              <label>
+                Name
+                <input id="studentName" type="text" value="Bobby" autocomplete="name" />
+              </label>
+              <label>
+                Course
+                <select id="courseSelect">
+                  <option>CS 101</option>
+                  <option>Calculus II</option>
+                  <option>Writing Seminar</option>
+                  <option>Data Structures</option>
+                </select>
+              </label>
+              <label>
+                Need
+                <select id="needSelect">
+                  <option>Debugging help</option>
+                  <option>Concept question</option>
+                  <option>Assignment review</option>
+                  <option>Exam prep</option>
+                </select>
+              </label>
+              <label>
+                Question details
+                <textarea
+                  id="questionMessage"
+                  rows="4"
+                  placeholder="Describe what you are stuck on, what you tried, or what you want the TA to review."
+                ></textarea>
+              </label>
+              <label>
+                Attach file
+                <input id="questionFile" type="file" />
+              </label>
+              <button class="primary-action" type="submit">Join Virtual Line</button>
+            </form>
+
+            <div id="queueState" class="queue-state hidden" aria-live="polite">
+              <div>
+                <p class="metric-label">Your place</p>
+                <strong id="placeInLine">4th</strong>
+              </div>
+              <div>
+                <p class="metric-label">Estimated wait</p>
+                <strong id="personalWait">18 min</strong>
+              </div>
+              <button id="leaveLine" class="secondary-action" type="button">Leave Line</button>
+            </div>
+          </article>
+
+          <article class="panel crowd-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Current Crowd</p>
+                <h3 id="crowdHeadline">Moderate</h3>
+              </div>
+              <span id="waitNow" class="big-number">18 min</span>
+            </div>
+            <div class="meter" aria-label="Crowd level">
+              <span id="crowdMeter"></span>
+            </div>
+            <div class="metric-row">
+              <div>
+                <p class="metric-label">Students waiting</p>
+                <strong id="studentsWaiting">6</strong>
+              </div>
+              <div>
+                <p class="metric-label">TAs active</p>
+                <strong id="tasActive">2</strong>
+              </div>
+              <div>
+                <p class="metric-label">Avg help time</p>
+                <strong id="helpTime">7 min</strong>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section class="content-grid">
+          <article class="panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Recommendations</p>
+                <h3>Better times today</h3>
+              </div>
+              <button id="refreshData" class="icon-button" type="button" aria-label="Refresh crowd data">R</button>
+            </div>
+            <div id="recommendations" class="recommendations"></div>
+          </article>
+
+          <article class="panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Busy-Time Prediction</p>
+                <h3>Today's forecast</h3>
+              </div>
+              <span class="forecast-note">AI estimate</span>
+            </div>
+            <div id="forecast" class="forecast"></div>
+          </article>
+        </section>
+
+        <section class="panel notification-panel">
+          <div>
+            <p class="eyebrow">Notification Preview</p>
+            <h3 id="notificationTitle">We'll alert you when it is almost your turn.</h3>
+            <p id="notificationBody">
+              Students can keep studying, commuting, or working instead of waiting in a hallway.
+            </p>
+          </div>
+          <button id="simulateTurn" class="secondary-action" type="button">Simulate Turn Alert</button>
+        </section>
+
+        <section class="panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">My Sessions</p>
+              <h3>Office-hour sessions you joined</h3>
+            </div>
+          </div>
+          <div id="joinedSessionsList" class="joined-sessions-list"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
