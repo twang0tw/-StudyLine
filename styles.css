@@ -593,6 +593,28 @@ textarea {
   min-width: 0;
 }
 
+.session-question {
+  margin-top: 12px;
+  padding: 12px;
+  border-left: 3px solid var(--blue);
+  border-radius: 8px;
+  background: #f5f8fc;
+}
+
+.session-question span {
+  margin-top: 0;
+  color: var(--blue);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.session-question p {
+  margin: 6px 0 0;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
 .prep-checklist {
   margin-top: 12px;
   padding: 12px;

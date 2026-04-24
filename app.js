@@ -178,6 +178,10 @@ function renderJoinedSessions() {
             <strong>${escapeHtml(session.slotLabel)}</strong>
             <span>${escapeHtml(session.course)} - ${escapeHtml(session.need)}</span>
             <small>${escapeHtml(session.joinedAt)}</small>
+            <div class="session-question">
+              <span>Question asked</span>
+              <p>${escapeHtml(session.message || "No question details provided.")}</p>
+            </div>
             <div class="prep-checklist">
               <div class="prep-checklist-header">
                 <span>Prep while you wait</span>
@@ -394,6 +398,7 @@ function saveJoinedSession(entry, state) {
     slotLabel: slot ? `${slot.date}, ${slot.label}` : "Selected office-hour slot",
     course: entry.course,
     need: entry.need,
+    message: entry.message,
     prepChecklist: entry.ai?.prepChecklist || getSessionPrepChecklist(entry),
     status: "waiting",
     waitText: `${state.queue.personalWaitMinutes || state.live.estimatedWaitMinutes} min wait`,
