@@ -1,10 +1,15 @@
-from datetime import datetime, timedelta
-
 """Scheduling-related business logic.
 
 Start small here. This module is where helpers from `server.js` should move
 once they stop being route-local logic.
 """
+
+from datetime import datetime, timedelta
+
+
+MIN_WAIT_MINUTES = 3
+DEFAULT_AVERAGE_HELP_MINUTES = 7
+DEFAULT_TA_COUNT = 1
 
 
 def slot_id_for(date: str, start_time: str) -> str:
@@ -21,22 +26,14 @@ def slot_id_for(date: str, start_time: str) -> str:
     normalized_time = start_time.replace(":", "")
     return f"slot-{date}-{normalized_time}"
 
-# function createSlot({ date, startTime, taName = "Bobby", location = "Office Hours Room" }) {
-#     const start = new Date(`${date}T${startTime}:00`);
-#     const end = new Date(start.getTime() + 30 * 60 * 1000);
-#     const endTime = end.toTimeString().slice(0, 5);
-#
-#     return {
-#     id: slotIdFor(date, startTime),
-#     date,
-#     startTime,
-#     endTime,
-#     taName,
-#     location,
-#     };
-# }
+def create_slot(
+    date: str,
+    start_time: str,
+    ta_name: str = "TA",
+    location: str = "Office Hours Room",
+) -> dict[str, str]:
+    """Create one 30-minute office-hours slot."""
 
-def create_slot(date, start_time, ta_name="Bobby", location="Office Hours Room"):
     start = datetime.fromisoformat(f"{date}T{start_time}:00")
     end = start + timedelta(minutes=30)
 
@@ -48,61 +45,74 @@ def create_slot(date, start_time, ta_name="Bobby", location="Office Hours Room")
         "startTime": start_time_str,
         "endTime": end_time_str,
         "taName": ta_name,
-        "location": location
+        "location": location,
     }
 
-# function createThirtyMinuteSlots({ date, startTime, endTime, taName, location }) {
-#   const slots = [];
-#   let cursor = new Date(`${date}T${startTime}:00`);
-#   const end = new Date(`${date}T${endTime}:00`);
-#
-#   while (cursor < end) {
-#     const slotStart = cursor.toTimeString().slice(0, 5);
-#     slots.push(createSlot({ date, startTime: slotStart, taName, location }));
-#     cursor = new Date(cursor.getTime() + 30 * 60 * 1000);
-#   }
-#
-#   return slots;
-# }
 
-def createThirtyMinutesSlots(date, start_time, end_time, ta_name="TA", location="Office Hours Room"):
+def create_thirty_minute_slots(
+    date: str,
+    start_time: str,
+    end_time: str,
+    ta_name: str = "TA",
+    location: str = "Office Hours Room",
+) -> list[dict[str, str]]:
+    """Expand one availability block into 30-minute slots."""
+
     slots = []
-    i = datetime.fromisoformat(f"{date}T{start_time}:00")
+    cursor = datetime.fromisoformat(f"{date}T{start_time}:00")
     end = datetime.fromisoformat(f"{date}T{end_time}:00")
 
-    while i < end:
-        slot_start = i.strftime("%H:%M")
+    while cursor < end:
+        slot_start = cursor.strftime("%H:%M")
         slots.append(create_slot(date, slot_start, ta_name, location))
-        i += timedelta(minutes=30)
+        cursor += timedelta(minutes=30)
 
     return slots
 
-# function getEntryHelpMinutes(entry) {
-#   return entry?.ai?.estimatedHelpMinutes || state.averageHelpMinutes;
-# }
-#
 
-# function estimateWait(entries = state.queue) {
-#   const totalHelpMinutes = entries.reduce((total, entry) => total + getEntryHelpMinutes(entry), 0);
-#   return Math.max(3, Math.round(totalHelpMinutes / state.tasActive));
-# }
-#
-# helper function to return the estimated time for given entry
-def get_entry_help_minutes(entry):
-    return entry.get("ai", {}).get("estimatedHelpMinutes") or state.averageHelpMinutes
+def get_entry_help_minutes(
+    entry: dict,
+    average_help_minutes: int = DEFAULT_AVERAGE_HELP_MINUTES,
+) -> int:
+    """Return an entry's help estimate, falling back to caller-provided context.
 
-# return the total wait time for list of entries
-def estimate_wait(entries,num_ta):
-    total_time = sum(get_entry_help_minutes(entry) for entry in entries)
-    return max(3, round(total_time / num_ta))
+    In `server.js`, this function reached into global state:
+        entry?.ai?.estimatedHelpMinutes || state.averageHelpMinutes
 
-def crowd_level(wait_time):
+    In Python, avoid that hidden dependency. The route/repository/service that
+    already knows the current average should pass it in explicitly.
+    """
+
+    ai = entry.get("ai") or {}
+    estimate = ai.get("estimatedHelpMinutes")
+    return int(estimate or average_help_minutes)
+
+
+def estimate_wait(
+    entries: list[dict],
+    tas_active: int = DEFAULT_TA_COUNT,
+    average_help_minutes: int = DEFAULT_AVERAGE_HELP_MINUTES,
+) -> int:
+    """Estimate total wait for a queue slice.
+
+    All state that used to come from `state` is now passed in. Later, these
+    values should come from your database/repository layer.
+    """
+
+    safe_ta_count = max(1, tas_active)
+    total_time = sum(
+        get_entry_help_minutes(entry, average_help_minutes=average_help_minutes)
+        for entry in entries
+    )
+    return max(MIN_WAIT_MINUTES, round(total_time / safe_ta_count))
+
+
+def crowd_level(wait_time: int) -> str:
     if wait_time <= 10:
         return "low"
-    elif wait_time <= 30:
+    if wait_time <= 22:
         return "medium"
-    else:
-        return "high"
+    return "high"
 
 # def get_selected_slot_id(student_id, requested_slot_id):
 #     student_entry = student_id
