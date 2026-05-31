@@ -87,9 +87,14 @@ def createThirtyMinutesSlots(date, start_time, end_time, ta_name="TA", location=
 #   return Math.max(3, Math.round(totalHelpMinutes / state.tasActive));
 # }
 #
+# helper function to return the estimated time for given entry
+def get_entry_help_minutes(entry):
+    return entry.get("ai", {}).get("estimatedHelpMinutes") or state.averageHelpMinutes
 
-def estimate_wait(entries):
-    total_time = entries.reduce
+# return the total wait time for list of entries
+def estimate_wait(entries,num_ta):
+    total_time = sum(get_entry_help_minutes(entry) for entry in entries)
+    return max(3, round(total_time / num_ta))
 
 def crowd_level(wait_time):
     if wait_time <= 10:
@@ -99,8 +104,5 @@ def crowd_level(wait_time):
     else:
         return "high"
 
-# function crowdForWait(wait) {
-#   if (wait <= 10) return "low";
-#   if (wait <= 22) return "medium";
-#   return "high";
-# }
+# def get_selected_slot_id(student_id, requested_slot_id):
+#     student_entry = student_id
