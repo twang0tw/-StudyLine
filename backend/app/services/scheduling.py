@@ -114,5 +114,14 @@ def crowd_level(wait_time: int) -> str:
         return "medium"
     return "high"
 
-# def get_selected_slot_id(student_id, requested_slot_id):
-#     student_entry = student_id
+def get_selected_slot_id(student_id, requested_slot_id, first_slot_id, entries):
+    student_entry = next((entry for entry in entries if entry.id == student_id), None)
+    if requested_slot_id:
+        return requested_slot_id
+    elif student_entry is not None:
+        return student_entry.slotId
+    else:
+        return first_slot_id
+
+def build_state(studentId, requested_slot_id):
+    
