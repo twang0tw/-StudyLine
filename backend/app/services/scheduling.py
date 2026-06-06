@@ -122,6 +122,3 @@ def get_selected_slot_id(student_id, requested_slot_id, first_slot_id, entries):
         return student_entry.slotId
     else:
         return first_slot_id
-
-def build_state(studentId, requested_slot_id):
-    
