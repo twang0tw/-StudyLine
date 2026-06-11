@@ -69,6 +69,8 @@ def create_thirty_minute_slots(
 
     return slots
 
+def format_slot(slot):
+    return `${datetime.fromisoformat(slot.startTime)} - ${formatTime(slot.endTime)}`
 
 def get_entry_help_minutes(
     entry: dict,
