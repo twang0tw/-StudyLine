@@ -1,9 +1,10 @@
 import scheduling
-from backend.app.services.scheduling import estimate_wait
+from backend.app.services.scheduling import estimate_wait, crowd_level
 
 
 def build_state(
         slots,
+        avalibility,
         queue_entries,
         current_by_slot,
         served_by_slot,
@@ -24,8 +25,12 @@ def build_state(
         "slots": [
             {
                **slot,
-               "label": format_slot
+               "label": scheduling.format_slot(slot),
+                "students_waiting": len(slot_waiting),
+                "estimated_wait": wait,
+                "crowd": crowd_level(wait),
             }
+            for slot in slots
         ],
         "selected_slot_id": selected_slot_id,
         "live": {
@@ -58,6 +63,17 @@ def build_state(
                 for index, entry in enumerate(wait_queue)
             ],
             "served_count": served_by_slot[selected_slot_id] or 0 if selected_slot_id else 0
+        },
+        "sessions": {
+            {
+                "id": slot.id,
+                "time": scheduling.format_slot(slot),
+                "room": slot.location,
+                "wait": scheduling.estimate_wait(),
+                "crowd": scheduling.crowd_level(),
+                "note": f"${slot.ta_name} available",
+            }
+            for slot in avalibility
         }
 
     }
