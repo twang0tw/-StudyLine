@@ -347,7 +347,6 @@ async function analyzeQuestionWithGemini({ course, need, message, file, apiKey }
     const messageText = result?.error?.message || `HTTP ${response.status}`;
     throw new Error(messageText);
   }
-
   const text = result?.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
 
   if (!text) {

@@ -2,7 +2,7 @@ from dataclasses import asdict, is_dataclass
 from datetime import time
 from typing import Any
 
-from .scheduling import crowd_level, estimate_wait
+from .scheduling_service import crowd_level, estimate_wait
 
 
 def build_state(
