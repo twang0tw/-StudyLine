@@ -229,17 +229,51 @@ flowchart LR
 ## Key files quick reference
 
 ```
--StudyLine/
-├── index.html          # Role picker
-├── student.html        # Student UI
-├── ta.html             # TA UI
-├── app.js              # Frontend logic & API client
-├── styles.css
-├── server.js           # Legacy Node backend + migration notes
-├── package.json        # npm start -> node server.js
-└── backend/
-    └── app/
-        ├── main.py
-        └── services/
-            └── scheduling.py
+StudyLine/
+├─ backend/                              # Must-have, P0: Python backend root
+│  ├─ app/                               # Must-have, P0: FastAPI application package
+│  │  ├─ main.py                         # Must-have, P0: creates FastAPI app and registers routes
+│  │  ├─ __init__.py                     # Must-have, P0: marks app as a Python package
+│  │  │
+│  │  ├─ api/                            # Must-have, P0: route/controller layer
+│  │  │  ├─ routes_slots.py              # Must-have, P0: slot availability endpoints
+│  │  │  ├─ routes_queue.py              # Must-have, P0: student join/leave/status endpoints
+│  │  │  ├─ routes_staff.py              # Must-have, P0: TA call-next/serve-current endpoints
+│  │  │  ├─ routes_forecast.py           # Optional, P2: only needed if forecast stays as a feature
+│  │  │  └─ __init__.py                  # Must-have, P0: route package marker
+│  │  │
+│  │  ├─ core/                           # Recommended, P1: shared app configuration/security
+│  │  │  ├─ config.py                    # Recommended, P1: env vars, API keys, DB URL, app settings
+│  │  │  ├─ security.py                  # Recommended, P1: token/session helpers
+│  │  │  └─ __init__.py                  # Recommended, P1: package marker
+│  │  │
+│  │  ├─ db/                             # Must-have if using persistence, P0/P1
+│  │  │  ├─ session.py                   # Must-have with DB, P0: DB engine/session dependency
+│  │  │  ├─ models.py                    # Must-have with DB, P0: tables/entities
+│  │  │  └─ __init__.py                  # Must-have with DB, P0: package marker
+│  │  │
+│  │  ├─ schemas/                        # Recommended, P1: Pydantic request/response contracts
+│  │  │  ├─ slots.py                     # Recommended, P1: slot request/response schemas
+│  │  │  ├─ queue.py                     # Recommended, P1: queue request/response schemas
+│  │  │  ├─ staff.py                     # Recommended, P1: TA dashboard/control schemas
+│  │  │  ├─ ai.py                        # Optional, P2: AI analysis response schema
+│  │  │  └─ __init__.py                  # Recommended, P1: package marker
+│  │  │
+│  │  ├─ services/                       # Must-have, P0: business logic layer
+│  │  │  ├─ scheduling_service.py        # Must-have, P0: slot IDs, slot creation, wait/crowd rules
+│  │  │  ├─ state_service.py             # Must-have, P0: read-model/dashboard projection logic
+│  │  │  ├─ queue_service.py             # Must-have, P0: join queue, leave queue, queue status
+│  │  │  ├─ staff_service.py             # Must-have, P0: call next, serve current, TA queue logic
+│  │  │  ├─ ai_service.py                # Recommended, P1: AI/local heuristic question analysis
+│  │  │  ├─ forecast_service.py          # Optional, P2: forecast/demo crowd data
+│  │  │  └─ __init__.py                  # Must-have, P0: service package marker
+│  │  │
+│  │  └─ repositories/                   # Optional now, P2: useful once DB logic grows
+│  │     ├─ slot_repository.py           # Optional, P2: slot database queries
+│  │     ├─ queue_repository.py          # Optional, P2: queue database queries
+│  │     └─ __init__.py                  # Optional, P2: package marker
+│  │
+│  ├─ tests/                             # Recommended, P1: automated backend tests
+│  │  ├─ test_scheduling_service.py      # Recommended, P1: wait/slot helper tests
+│  │  ├─ test_state
 ```
