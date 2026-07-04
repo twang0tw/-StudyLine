@@ -1,16 +1,16 @@
 from dataclasses import asdict, is_dataclass
 from datetime import time
-from typing import Any
+from typing import Any, Optional
 
 from .scheduling_service import crowd_level, estimate_wait
 
 
 def build_state(
         slots,
-        avalibility,
         queue_entries,
         current_by_slot,
         served_by_slot,
+        availability=None,
         student_id=None,
         requested_slot_id=None,
         tas_active=1,
@@ -18,7 +18,7 @@ def build_state(
         forecast=None,
 ):
     slots = list(slots or [])
-    availability = list(avalibility or slots)
+    availability = list(availability or slots)
     queue_entries = list(queue_entries or [])
     current_by_slot = current_by_slot or {}
     served_by_slot = served_by_slot or {}
@@ -105,7 +105,7 @@ def _get(source: Any, *keys: str, default=None):
     return default
 
 
-def _get_from_mapping(source: Any, key: str | None, default=None):
+def _get_from_mapping(source: Any, key: Optional[str], default=None):
     if not key:
         return default
     if isinstance(source, dict):
