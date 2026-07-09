@@ -5,6 +5,7 @@ once they stop being route-local logic.
 """
 
 from datetime import datetime, timedelta
+from typing import Dict, List
 
 
 MIN_WAIT_MINUTES = 3
@@ -31,7 +32,7 @@ def create_slot(
     start_time: str,
     ta_name: str = "TA",
     location: str = "Office Hours Room",
-) -> dict[str, str]:
+) -> Dict[str, str]:
     """Create one 30-minute office-hours slot."""
 
     start = datetime.fromisoformat(f"{date}T{start_time}:00")
@@ -55,7 +56,7 @@ def create_thirty_minute_slots(
     end_time: str,
     ta_name: str = "TA",
     location: str = "Office Hours Room",
-) -> list[dict[str, str]]:
+) -> List[Dict[str, str]]:
     """Expand one availability block into 30-minute slots."""
 
     slots = []
@@ -70,10 +71,14 @@ def create_thirty_minute_slots(
     return slots
 
 def format_time(t):
-    return t.strftime("%H:%M")
+    if hasattr(t, "strftime"):
+        return t.strftime("%H:%M")
+    return str(t)
 
 def format_slot(slot):
-    return f"{format_time(slot.startTime)} - {format_time(slot.endTime)}"
+    start_time = slot.get("startTime") if isinstance(slot, dict) else slot.startTime
+    end_time = slot.get("endTime") if isinstance(slot, dict) else slot.endTime
+    return f"{format_time(start_time)} - {format_time(end_time)}"
 
 def get_entry_help_minutes(
     entry: dict,
@@ -94,7 +99,7 @@ def get_entry_help_minutes(
 
 
 def estimate_wait(
-    entries: list[dict],
+    entries: List[Dict],
     tas_active: int = DEFAULT_TA_COUNT,
     average_help_minutes: int = DEFAULT_AVERAGE_HELP_MINUTES,
 ) -> int:
@@ -120,10 +125,16 @@ def crowd_level(wait_time: int) -> str:
     return "high"
 
 def get_selected_slot_id(student_id, requested_slot_id, first_slot_id, entries):
-    student_entry = next((entry for entry in entries if entry.id == student_id), None)
+    student_entry = next((entry for entry in entries if _entry_value(entry, "id") == student_id), None)
     if requested_slot_id:
         return requested_slot_id
     elif student_entry is not None:
-        return student_entry.slotId
+        return _entry_value(student_entry, "slotId") or _entry_value(student_entry, "slot_id")
     else:
         return first_slot_id
+
+
+def _entry_value(entry, key):
+    if isinstance(entry, dict):
+        return entry.get(key)
+    return getattr(entry, key, None)
