@@ -10,10 +10,12 @@ Business logic should live in `app/services/`, not directly in route handlers.
 
 from fastapi import FastAPI
 
-from app.services.scheduling import slot_id_for
+# from services.scheduling import slot_id_for
+from api import routes_queue, routes_slots, routes_ta
 
 app = FastAPI(title="StudyLine API")
 
+app.include_router(routes_slots.router)
 
 @app.get("/health")
 def health_check() -> dict[str, str]:
