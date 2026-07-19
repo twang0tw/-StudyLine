@@ -11,7 +11,7 @@ Business logic should live in `app/services/`, not directly in route handlers.
 from fastapi import FastAPI
 
 # from services.scheduling import slot_id_for
-from api import routes_queue, routes_slots, routes_ta
+from app.api import routes_queue, routes_slots, routes_ta
 
 app = FastAPI(title="StudyLine API")
 
