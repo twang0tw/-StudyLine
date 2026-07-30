@@ -5,6 +5,7 @@ from app.services.db_service import app_state
 
 router = APIRouter(prefix="api/state", tags=["state"])
 
+# from js `handleStateRoute` function
 @router.get("")
 def get_state(
     student_id: str | None = Query(default=None, alias="studentId"),

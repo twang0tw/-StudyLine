@@ -442,6 +442,7 @@ function buildQuestionSummary({ course, need, message, file, reasons }) {
 // Python rewrite note: Yes. This should be a dedicated route + state service.
 // =============================================================================
 
+// finished
 async function handleStateRoute(req, res, url) {
   sendJson(res, 200, buildState(url.searchParams.get("studentId"), url.searchParams.get("slotId")));
 }
@@ -453,6 +454,7 @@ async function handleStateRoute(req, res, url) {
 // Python rewrite note: Yes. Persist slots in the database and validate ranges.
 // =============================================================================
 
+// finished
 async function handleCreateAvailabilityRoute(req, res) {
   const body = await readJson(req);
   const date = String(body.date || today).slice(0, 10);
@@ -472,6 +474,7 @@ async function handleCreateAvailabilityRoute(req, res) {
   sendJson(res, 201, { slots, state: buildState(null, slots[0]?.id) });
 }
 
+//
 async function handleDeleteAvailabilityRoute(req, res, parts) {
   const slotId = parts[2];
   const before = state.availability.length;

@@ -15,6 +15,7 @@ class CreateAvailabilityRequest(BaseModel):
     taName: str = Field(default="TA", max_length=80)
     location: str = Field(default="Office Hours Room", max_length=100)
 
+# from js 'handleCreateAvailabilityRoute' function
 @router.post("/availability", status_code=status.HTTP_201_CREATED)
 def create_availability(payload: CreateAvailabilityRequest):
     slots = scheduling_service.create_thirty_minutes_slots(
@@ -51,3 +52,12 @@ def create_availability(payload: CreateAvailabilityRequest):
         ),
     }
 
+class DeleteAvailabilityRequest(BaseModel):
+    slot_id: str
+    before: int
+
+
+
+# from js 'handleDeleteAvailabilityRoute' function
+@router.post("/availability", status_code=status.HTTP_200_OK)
+def delete_availability(payload:DeleteAvailabilityRequest):

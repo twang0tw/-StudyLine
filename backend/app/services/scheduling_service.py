@@ -27,6 +27,7 @@ def slot_id_for(date: str, start_time: str) -> str:
     normalized_time = start_time.replace(":", "")
     return f"slot-{date}-{normalized_time}"
 
+
 def create_slot(
     date: str,
     start_time: str,
@@ -70,15 +71,18 @@ def create_thirty_minute_slots(
 
     return slots
 
+
 def format_time(t):
     if hasattr(t, "strftime"):
         return t.strftime("%H:%M")
     return str(t)
 
+
 def format_slot(slot):
     start_time = slot.get("startTime") if isinstance(slot, dict) else slot.startTime
     end_time = slot.get("endTime") if isinstance(slot, dict) else slot.endTime
     return f"{format_time(start_time)} - {format_time(end_time)}"
+
 
 def get_entry_help_minutes(
     entry: dict,
@@ -123,6 +127,7 @@ def crowd_level(wait_time: int) -> str:
     if wait_time <= 22:
         return "medium"
     return "high"
+
 
 def get_selected_slot_id(student_id, requested_slot_id, first_slot_id, entries):
     student_entry = next((entry for entry in entries if _entry_value(entry, "id") == student_id), None)
