@@ -5,13 +5,14 @@ from pydantic import BaseModel, Field
 
 from app.services import scheduling_service, state_service
 from app.services.db_service import app_state
+from app.services.state_service import build_state
 
 router = APIRouter(prefix="api/slots", tags=["slots"])
 
 class CreateAvailabilityRequest(BaseModel):
     date: str
     startTime: str = Field(default="09:00", max_length=5)
-    endTime:str = Field(default="09:30", max_length=5)
+    endTime: str = Field(default="09:30", max_length=5)
     taName: str = Field(default="TA", max_length=80)
     location: str = Field(default="Office Hours Room", max_length=100)
 
@@ -52,12 +53,38 @@ def create_availability(payload: CreateAvailabilityRequest):
         ),
     }
 
-class DeleteAvailabilityRequest(BaseModel):
-    slot_id: str
-    before: int
-
-
-
 # from js 'handleDeleteAvailabilityRoute' function
-@router.post("/availability", status_code=status.HTTP_200_OK)
-def delete_availability(payload:DeleteAvailabilityRequest):
+@router.delete("/availability/{slot_id}", status_code=status.HTTP_200_OK)
+def delete_availability(slot_id: str):
+    len_before = len(app_state["availability"])
+
+    app_state["availability"] = [
+        slot for slot in app_state["availability"]
+        if slot["id"] != slot_id
+    ]
+
+    app_state["queue"] = [
+        entry for entry in app_state["queue"]
+        if entry["slotId"] != slot_id
+    ]
+
+    app_state["currentBySlot"].pop(slot_id, None)
+    app_state["servedBySlot"].pop(slot_id, None)
+
+    selected_slot_id = app_state["availability"][0]["id"] if app_state["availability"] else None
+
+    return {
+        "removed": len_before != len(app_state["availability"]),
+        "state": state_service.build_state(
+            slots=app_state["availability"],
+            availability=app_state["availability"],
+            queue_entries=app_state["queue"],
+            current_by_slot=app_state["currentBySlot"],
+            served_by_slot=app_state["servedBySlot"],
+            student_id=None,
+            requested_slot_id=selected_slot_id,
+            tas_active=app_state["tasActive"],
+            avg_help_minutes=app_state["averageHelpMinutes"],
+            forecast=app_state["forecast"],
+        ),
+    }
