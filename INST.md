@@ -113,3 +113,221 @@ Expose it either as one internal module used by many routes (matching app.js) or
 Don’t put wait/position/crowd math inside POST handlers; call the read service after writes (or have the client refetch read endpoints, as app.js already does).
 scheduling.py is the right home for slot/wait math; a sibling module (e.g. state.py) fits slot overview, queue status, and staff queue projections.
 If you want, next step can be a file-by-file checklist mapping each server.js function to a Python module and which FastAPI route should call it.
+
+
+
+DB:
+Yes, this is the right next thing to learn. The mental shift is:
+
+`server.js state` is one big in-memory object.
+
+MongoDB `app_state` should become a set of collection reads/writes that recreate the same shape only when your services need it.
+
+Don’t start by writing Mongo code. Start by finding each `state` access in `server.js` and labeling what it means.
+
+Run this:
+
+```bash
+rg -n "state\\." server.js
+```
+
+You’ll see patterns like:
+
+```js
+state.availability
+state.queue
+state.currentBySlot
+state.servedBySlot
+state.tasActive
+state.averageHelpMinutes
+state.forecast
+```
+
+Treat each top-level field as either a Mongo collection or a settings document.
+
+I’d map them like this:
+
+```text
+state.availability      -> slots collection
+state.queue             -> queue_entries collection
+state.currentBySlot     -> current_students collection
+state.servedBySlot      -> served_counts collection
+state.tasActive         -> app_settings document
+state.averageHelpMinutes -> app_settings document
+state.forecast          -> forecasts collection or demo/settings document
+studentSessions         -> student_sessions collection
+```
+
+So your current [db_service.py](/Users/MaxCai/PycharmProjects/-StudyLine/backend/app/services/db_service.py:14) should eventually stop exporting this:
+
+```python
+app_state = {
+    "availability": [...],
+    "queue": [...],
+    "currentBySlot": {},
+    ...
+}
+```
+
+and start exporting functions like:
+
+```python
+def list_slots():
+    ...
+
+def list_queue_entries():
+    ...
+
+def insert_queue_entry(entry):
+    ...
+
+def get_current_by_slot():
+    ...
+
+def increment_served_count(slot_id):
+    ...
+```
+
+The important idea: **routes should not know whether storage is memory or MongoDB**.
+
+Right now your routes do this:
+
+```python
+app_state["queue"].append(entry)
+```
+
+That is local-memory style.
+
+MongoDB style should become:
+
+```python
+db_service.insert_queue_entry(entry)
+```
+
+Then inside `db_service.py`, you do the Mongo operation.
+
+Example using your JS as reference:
+
+In `server.js`, queue join is here:
+
+```js
+state.queue.push(entry);
+```
+
+That tells you the Python Mongo replacement should be an insert:
+
+```python
+def insert_queue_entry(entry):
+    queue_entries.insert_one(entry)
+```
+
+Then the route changes from:
+
+```python
+app_state["queue"].append(entry)
+```
+
+to:
+
+```python
+db_service.insert_queue_entry(entry)
+```
+
+Another example:
+
+In `server.js`, delete queue entry is:
+
+```js
+state.queue = state.queue.filter((entry) => entry.id !== parts[2]);
+```
+
+That means Mongo replacement is delete-by-id:
+
+```python
+def delete_queue_entry(entry_id):
+    result = queue_entries.delete_one({"id": entry_id})
+    return result.deleted_count > 0
+```
+
+Another:
+
+```js
+state.availability = state.availability.filter((slot) => slot.id !== slotId);
+state.queue = state.queue.filter((entry) => entry.slotId !== slotId);
+delete state.currentBySlot[slotId];
+delete state.servedBySlot[slotId];
+```
+
+Mongo version is multiple operations:
+
+```python
+def delete_slot(slot_id):
+    slots.delete_one({"id": slot_id})
+    queue_entries.delete_many({"slotId": slot_id})
+    current_students.delete_one({"slotId": slot_id})
+    served_counts.delete_one({"slotId": slot_id})
+```
+
+So your migration process should be:
+
+1. Find the JS state operation.
+2. Ask: is it reading, inserting, updating, deleting, or aggregating?
+3. Write a `db_service.py` function with a plain name.
+4. Replace direct `app_state[...]` use in the route with that function.
+5. Keep `state_service.build_state()` mostly unchanged by feeding it lists/dicts returned from Mongo.
+
+For `build_state()`, you don’t want it querying Mongo directly. Keep it as a pure read-model builder.
+
+Instead of:
+
+```python
+state_service.build_state(
+    slots=app_state["availability"],
+    queue_entries=app_state["queue"],
+    current_by_slot=app_state["currentBySlot"],
+    served_by_slot=app_state["servedBySlot"],
+)
+```
+
+you eventually want:
+
+```python
+state_service.build_state(
+    slots=db_service.list_slots(),
+    queue_entries=db_service.list_queue_entries(),
+    current_by_slot=db_service.get_current_by_slot(),
+    served_by_slot=db_service.get_served_by_slot(),
+    tas_active=db_service.get_setting("tasActive", 2),
+    avg_help_minutes=db_service.get_setting("averageHelpMinutes", 7),
+    forecast=db_service.list_forecast(),
+)
+```
+
+That lets `state_service.py` stay clean. It receives ordinary Python data and doesn’t care where it came from.
+
+A small first exercise I’d do next: migrate only `state.availability`.
+
+Start with these three functions in `db_service.py`:
+
+```python
+def list_slots():
+    return list(slots_collection.find({}, {"_id": 0}))
+
+def insert_slots(new_slots):
+    existing_ids = {slot["id"] for slot in list_slots()}
+    fresh_slots = [slot for slot in new_slots if slot["id"] not in existing_ids]
+    if fresh_slots:
+        slots_collection.insert_many(fresh_slots)
+    return fresh_slots
+
+def delete_slot(slot_id):
+    result = slots_collection.delete_one({"id": slot_id})
+    queue_entries_collection.delete_many({"slotId": slot_id})
+    current_students_collection.delete_one({"slotId": slot_id})
+    served_counts_collection.delete_one({"slotId": slot_id})
+    return result.deleted_count > 0
+```
+
+Then change only [routes_slots.py](/Users/MaxCai/PycharmProjects/-StudyLine/backend/app/api/routes_slots.py:47) to use those functions. Once slots work, do queue entries next.
+
+Tiny rule of thumb: if the JS line uses `.push()`, Mongo probably uses `insert_one()` or `insert_many()`. If the JS line uses `.filter()`, Mongo probably uses `delete_one()`, `delete_many()`, or `find()`. If the JS line assigns a property like `state.currentBySlot[slotId] = next`, Mongo probably uses `update_one(..., upsert=True)`.
