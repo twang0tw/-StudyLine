@@ -11,6 +11,7 @@ Business logic should live in `app/services/`, not directly in route handlers.
 from fastapi import FastAPI
 from typing import Dict
 
+from app.services import db_service
 from app.services import scheduling_service
 from app.api import routes_queue, routes_slots, routes_state, routes_ta
 
@@ -20,6 +21,12 @@ app.include_router(routes_slots.router)
 app.include_router(routes_queue.router)
 app.include_router(routes_state.router)
 app.include_router(routes_ta.router)
+
+
+@app.on_event("startup")
+async def startup() -> None:
+    await db_service.initialize_database()
+
 
 @app.get("/health")
 def health_check() -> Dict[str, str]:
