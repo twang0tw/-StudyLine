@@ -5,11 +5,9 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from dotenv import load_dotenv
-from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import ReturnDocument
+from pymongo import MongoClient, ReturnDocument
 
 from app.services.scheduling_service import create_slot, slot_id_for
-
 
 load_dotenv()
 
@@ -17,7 +15,7 @@ MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
 MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "studyline_dev")
 RETENTION_DAYS = int(os.getenv("DB_RETENTION_DAYS", "30"))
 
-client = AsyncIOMotorClient(MONGO_URL)
+client = MongoClient(MONGO_URL)
 db = client[MONGO_DB_NAME]
 
 slots_collection = db["slots"]
@@ -57,48 +55,48 @@ def _default_slots() -> list[dict[str, str]]:
     ]
 
 
-async def initialize_database() -> None:
-    await slots_collection.create_index("id", unique=True)
-    await slots_collection.create_index([("date", 1), ("startTime", 1)])
-    await queue_collection.create_index("id", unique=True)
-    await queue_collection.create_index([("slotId", 1), ("status", 1), ("joinedAt", 1)])
-    await queue_collection.create_index("expiresAt", expireAfterSeconds=0)
-    await slot_status_collection.create_index("slotId", unique=True)
-    await sessions_collection.create_index([("sessionToken", 1), ("createdAt", -1)])
-    await sessions_collection.create_index("expiresAt", expireAfterSeconds=0)
+def initialize_database() -> None:
+    slots_collection.create_index("id", unique=True)
+    slots_collection.create_index([("date", 1), ("startTime", 1)])
+    queue_collection.create_index("id", unique=True)
+    queue_collection.create_index([("slotId", 1), ("status", 1), ("joinedAt", 1)])
+    queue_collection.create_index("expiresAt", expireAfterSeconds=0)
+    slot_status_collection.create_index("slotId", unique=True)
+    sessions_collection.create_index([("sessionToken", 1), ("createdAt", -1)])
+    sessions_collection.create_index("expiresAt", expireAfterSeconds=0)
 
-    await settings_collection.update_one(
+    settings_collection.update_one(
         {"_id": "app"},
         {"$setOnInsert": DEFAULT_SETTINGS},
         upsert=True,
     )
 
-    if await forecast_collection.count_documents({}) == 0:
-        await forecast_collection.insert_many(DEFAULT_FORECAST)
+    if forecast_collection.count_documents({}) == 0:
+        forecast_collection.insert_many(DEFAULT_FORECAST)
 
-    if await slots_collection.count_documents({}) == 0:
-        await insert_slots(_default_slots())
-
-
-async def list_slots() -> list[dict[str, Any]]:
-    return await slots_collection.find({}, {"_id": 0}).sort(
-        [("date", 1), ("startTime", 1)]
-    ).to_list(length=None)
+    if slots_collection.count_documents({}) == 0:
+        insert_slots(_default_slots())
 
 
-async def find_slot(slot_id: str) -> Optional[dict[str, Any]]:
+def list_slots() -> list[dict[str, Any]]:
+    return list(
+        slots_collection.find({}, {"_id": 0}).sort([("date", 1), ("startTime", 1)])
+    )
+
+
+def find_slot(slot_id: str) -> Optional[dict[str, Any]]:
     if not slot_id:
         return None
-    return await slots_collection.find_one({"id": slot_id}, {"_id": 0})
+    return slots_collection.find_one({"id": slot_id}, {"_id": 0})
 
 
-async def insert_slots(slots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def insert_slots(slots: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not slots:
         return []
 
     existing_ids = {
         slot["id"]
-        async for slot in slots_collection.find(
+        for slot in slots_collection.find(
             {"id": {"$in": [slot["id"] for slot in slots]}},
             {"id": 1, "_id": 0},
         )
@@ -106,48 +104,44 @@ async def insert_slots(slots: list[dict[str, Any]]) -> list[dict[str, Any]]:
     new_slots = [slot for slot in slots if slot["id"] not in existing_ids]
 
     if new_slots:
-        await slots_collection.insert_many(new_slots)
+        slots_collection.insert_many(new_slots)
 
     return new_slots
 
 
-async def delete_slot(slot_id: str) -> bool:
+def delete_slot(slot_id: str) -> bool:
     if not slot_id:
         return False
 
-    result = await slots_collection.delete_one({"id": slot_id})
-    await queue_collection.delete_many({"slotId": slot_id})
-    await slot_status_collection.delete_one({"slotId": slot_id})
+    result = slots_collection.delete_one({"id": slot_id})
+    queue_collection.delete_many({"slotId": slot_id})
+    slot_status_collection.delete_one({"slotId": slot_id})
     return result.deleted_count > 0
 
 
-async def list_queue_entries(slot_id: Optional[str] = None) -> list[dict[str, Any]]:
+def list_queue_entries(slot_id: Optional[str] = None) -> list[dict[str, Any]]:
     query: dict[str, Any] = {}
     if slot_id:
         query["slotId"] = slot_id
-    return await queue_collection.find(query, {"_id": 0}).sort(
-        [("joinedAt", 1)]
-    ).to_list(length=None)
+    return list(queue_collection.find(query, {"_id": 0}).sort([("joinedAt", 1)]))
 
 
-async def list_waiting_entries(slot_id: Optional[str] = None) -> list[dict[str, Any]]:
+def list_waiting_entries(slot_id: Optional[str] = None) -> list[dict[str, Any]]:
     query: dict[str, Any] = {"status": "waiting"}
     if slot_id:
         query["slotId"] = slot_id
-    return await queue_collection.find(query, {"_id": 0}).sort(
-        [("joinedAt", 1)]
-    ).to_list(length=None)
+    return list(queue_collection.find(query, {"_id": 0}).sort([("joinedAt", 1)]))
 
 
-async def find_queue_entry(entry_id: str) -> Optional[dict[str, Any]]:
+def find_queue_entry(entry_id: str) -> Optional[dict[str, Any]]:
     if not entry_id:
         return None
 
-    entry = await queue_collection.find_one({"id": entry_id}, {"_id": 0})
+    entry = queue_collection.find_one({"id": entry_id}, {"_id": 0})
     if entry:
         return entry
 
-    current_status = await slot_status_collection.find_one(
+    current_status = slot_status_collection.find_one(
         {"current.id": entry_id},
         {"_id": 0},
     )
@@ -156,31 +150,31 @@ async def find_queue_entry(entry_id: str) -> Optional[dict[str, Any]]:
     return None
 
 
-async def insert_queue_entry(entry: dict[str, Any]) -> dict[str, Any]:
+def insert_queue_entry(entry: dict[str, Any]) -> dict[str, Any]:
     if not entry:
         raise ValueError("entry cannot be empty")
 
     now = datetime.now(timezone.utc)
     entry.setdefault("createdAt", now)
     entry.setdefault("expiresAt", now + timedelta(days=RETENTION_DAYS))
-    await queue_collection.insert_one(entry)
+    queue_collection.insert_one(entry)
     return entry
 
 
-async def delete_queue_entry(entry_id: str) -> bool:
+def delete_queue_entry(entry_id: str) -> bool:
     if not entry_id:
         return False
 
-    queue_result = await queue_collection.delete_one({"id": entry_id})
-    current_result = await slot_status_collection.update_one(
+    queue_result = queue_collection.delete_one({"id": entry_id})
+    current_result = slot_status_collection.update_one(
         {"current.id": entry_id},
         {"$unset": {"current": ""}},
     )
     return queue_result.deleted_count > 0 or current_result.modified_count > 0
 
 
-async def delete_first_waiting_entry(slot_id: str) -> bool:
-    entry = await queue_collection.find_one_and_delete(
+def delete_first_waiting_entry(slot_id: str) -> bool:
+    entry = queue_collection.find_one_and_delete(
         {"slotId": slot_id, "status": "waiting"},
         sort=[("joinedAt", 1)],
         projection={"_id": 0},
@@ -188,56 +182,56 @@ async def delete_first_waiting_entry(slot_id: str) -> bool:
     return entry is not None
 
 
-async def pop_next_waiting_entry(slot_id: str) -> Optional[dict[str, Any]]:
-    return await queue_collection.find_one_and_delete(
+def pop_next_waiting_entry(slot_id: str) -> Optional[dict[str, Any]]:
+    return queue_collection.find_one_and_delete(
         {"slotId": slot_id, "status": "waiting"},
         sort=[("joinedAt", 1)],
         projection={"_id": 0},
     )
 
 
-async def get_current_by_slot() -> dict[str, Optional[dict[str, Any]]]:
+def get_current_by_slot() -> dict[str, Optional[dict[str, Any]]]:
     current_by_slot: dict[str, Optional[dict[str, Any]]] = {}
-    async for status in slot_status_collection.find({}, {"_id": 0, "slotId": 1, "current": 1}):
+    for status in slot_status_collection.find({}, {"_id": 0, "slotId": 1, "current": 1}):
         current_by_slot[status["slotId"]] = status.get("current")
     return current_by_slot
 
 
-async def get_current_student(slot_id: str) -> Optional[dict[str, Any]]:
-    status = await slot_status_collection.find_one({"slotId": slot_id}, {"_id": 0})
+def get_current_student(slot_id: str) -> Optional[dict[str, Any]]:
+    status = slot_status_collection.find_one({"slotId": slot_id}, {"_id": 0})
     return status.get("current") if status else None
 
 
-async def set_current_student(slot_id: str, entry: Optional[dict[str, Any]]) -> None:
+def set_current_student(slot_id: str, entry: Optional[dict[str, Any]]) -> None:
     if entry is None:
-        await clear_current_student(slot_id)
+        clear_current_student(slot_id)
         return
 
     entry.pop("expiresAt", None)
-    await slot_status_collection.update_one(
+    slot_status_collection.update_one(
         {"slotId": slot_id},
         {"$set": {"current": entry}, "$setOnInsert": {"servedCount": 0}},
         upsert=True,
     )
 
 
-async def clear_current_student(slot_id: str) -> None:
-    await slot_status_collection.update_one(
+def clear_current_student(slot_id: str) -> None:
+    slot_status_collection.update_one(
         {"slotId": slot_id},
         {"$unset": {"current": ""}, "$setOnInsert": {"servedCount": 0}},
         upsert=True,
     )
 
 
-async def get_served_by_slot() -> dict[str, int]:
+def get_served_by_slot() -> dict[str, int]:
     served_by_slot: dict[str, int] = {}
-    async for status in slot_status_collection.find({}, {"_id": 0, "slotId": 1, "servedCount": 1}):
+    for status in slot_status_collection.find({}, {"_id": 0, "slotId": 1, "servedCount": 1}):
         served_by_slot[status["slotId"]] = int(status.get("servedCount", 0))
     return served_by_slot
 
 
-async def increment_served_count(slot_id: str) -> int:
-    updated = await slot_status_collection.find_one_and_update(
+def increment_served_count(slot_id: str) -> int:
+    updated = slot_status_collection.find_one_and_update(
         {"slotId": slot_id},
         {"$inc": {"servedCount": 1}},
         projection={"_id": 0},
@@ -247,28 +241,28 @@ async def increment_served_count(slot_id: str) -> int:
     return int(updated.get("servedCount", 0)) if updated else 0
 
 
-async def get_settings() -> dict[str, int]:
-    settings = await settings_collection.find_one({"_id": "app"}, {"_id": 0})
+def get_settings() -> dict[str, int]:
+    settings = settings_collection.find_one({"_id": "app"}, {"_id": 0})
     return {**DEFAULT_SETTINGS, **(settings or {})}
 
 
-async def update_settings(values: dict[str, Any]) -> dict[str, int]:
-    await settings_collection.update_one(
+def update_settings(values: dict[str, Any]) -> dict[str, int]:
+    settings_collection.update_one(
         {"_id": "app"},
         {"$set": values},
         upsert=True,
     )
-    return await get_settings()
+    return get_settings()
 
 
-async def list_forecast() -> list[dict[str, Any]]:
-    forecast = await forecast_collection.find({}, {"_id": 0}).to_list(length=None)
+def list_forecast() -> list[dict[str, Any]]:
+    forecast = list(forecast_collection.find({}, {"_id": 0}))
     return forecast or list(DEFAULT_FORECAST)
 
 
-async def append_student_session(session_token: str, entry: dict[str, Any]) -> None:
+def append_student_session(session_token: str, entry: dict[str, Any]) -> None:
     now = datetime.now(timezone.utc)
-    await sessions_collection.insert_one(
+    sessions_collection.insert_one(
         {
             "sessionToken": session_token,
             "entry": entry,
@@ -278,27 +272,29 @@ async def append_student_session(session_token: str, entry: dict[str, Any]) -> N
     )
 
 
-async def list_student_sessions(session_token: str) -> list[dict[str, Any]]:
+def list_student_sessions(session_token: str) -> list[dict[str, Any]]:
     if not session_token:
         return []
 
-    sessions = await sessions_collection.find(
-        {"sessionToken": session_token},
-        {"_id": 0, "entry": 1},
-    ).sort([("createdAt", -1)]).to_list(length=None)
-    return [session["entry"] for session in sessions]
+    return [
+        session["entry"]
+        for session in sessions_collection.find(
+            {"sessionToken": session_token},
+            {"_id": 0, "entry": 1},
+        ).sort([("createdAt", -1)])
+    ]
 
 
-async def get_app_snapshot() -> dict[str, Any]:
-    settings = await get_settings()
-    slots = await list_slots()
+def get_app_snapshot() -> dict[str, Any]:
+    settings = get_settings()
+    slots = list_slots()
     return {
         "slots": slots,
         "availability": slots,
-        "queue": await list_queue_entries(),
-        "currentBySlot": await get_current_by_slot(),
-        "servedBySlot": await get_served_by_slot(),
+        "queue": list_queue_entries(),
+        "currentBySlot": get_current_by_slot(),
+        "servedBySlot": get_served_by_slot(),
         "tasActive": settings["tasActive"],
         "averageHelpMinutes": settings["averageHelpMinutes"],
-        "forecast": await list_forecast(),
+        "forecast": list_forecast(),
     }
