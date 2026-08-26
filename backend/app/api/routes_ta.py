@@ -9,8 +9,8 @@ from app.services.state_service import build_state
 router = APIRouter(tags=["staff"])
 
 
-async def _state(student_id: Optional[str] = None, slot_id: Optional[str] = None):
-    snapshot = await db_service.get_app_snapshot()
+def _state(student_id: Optional[str] = None, slot_id: Optional[str] = None):
+    snapshot = db_service.get_app_snapshot()
     return build_state(
         slots=snapshot["slots"],
         availability=snapshot["availability"],
@@ -25,17 +25,17 @@ async def _state(student_id: Optional[str] = None, slot_id: Optional[str] = None
     )
 
 
-async def _selected_slot_id(slot_id: Optional[str]) -> Optional[str]:
+def _selected_slot_id(slot_id: Optional[str]) -> Optional[str]:
     if slot_id:
         return slot_id
-    slots = await db_service.list_slots()
+    slots = db_service.list_slots()
     return slots[0]["id"] if slots else None
 
 
 @router.get("/api/staff/queue")
-async def staff_queue(slot_id: Optional[str] = Query(default=None)):
-    selected_slot_id = await _selected_slot_id(slot_id)
-    state = await _state(slot_id=selected_slot_id)
+def staff_queue(slot_id: Optional[str] = Query(default=None)):
+    selected_slot_id = _selected_slot_id(slot_id)
+    state = _state(slot_id=selected_slot_id)
     return {
         "served_count": state["staff"]["servedCount"],
         "current_student_id": state["staff"]["currentStudent"]["id"] if state["staff"]["currentStudent"] else None,
@@ -54,39 +54,39 @@ async def staff_queue(slot_id: Optional[str] = Query(default=None)):
 
 
 @router.get("/api/staff/queue/{entry_id}")
-async def staff_queue_entry(entry_id: str):
-    entry = await db_service.find_queue_entry(entry_id)
+def staff_queue_entry(entry_id: str):
+    entry = db_service.find_queue_entry(entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Queue entry not found.")
     return entry
 
 
 @router.post("/api/staff/call-next", status_code=status.HTTP_200_OK)
-async def call_next(slot_id: Optional[str] = Query(default=None)):
-    selected_slot_id = await _selected_slot_id(slot_id)
+def call_next(slot_id: Optional[str] = Query(default=None)):
+    selected_slot_id = _selected_slot_id(slot_id)
     if not selected_slot_id:
-        return {"next": None, "state": await _state()}
+        return {"next": None, "state": _state()}
 
-    current = await db_service.get_current_student(selected_slot_id)
+    current = db_service.get_current_student(selected_slot_id)
     if current:
-        await db_service.increment_served_count(selected_slot_id)
+        db_service.increment_served_count(selected_slot_id)
 
-    next_entry = await db_service.pop_next_waiting_entry(selected_slot_id)
+    next_entry = db_service.pop_next_waiting_entry(selected_slot_id)
     if next_entry:
         next_entry["status"] = "called"
         next_entry["calledAt"] = datetime.now(timezone.utc)
 
-    await db_service.set_current_student(selected_slot_id, next_entry)
-    return {"next": next_entry, "state": await _state(slot_id=selected_slot_id)}
+    db_service.set_current_student(selected_slot_id, next_entry)
+    return {"next": next_entry, "state": _state(slot_id=selected_slot_id)}
 
 
 @router.post("/api/staff/serve-current", status_code=status.HTTP_200_OK)
-async def serve_current(slot_id: Optional[str] = Query(default=None)):
-    selected_slot_id = await _selected_slot_id(slot_id)
-    served = await db_service.get_current_student(selected_slot_id) if selected_slot_id else None
+def serve_current(slot_id: Optional[str] = Query(default=None)):
+    selected_slot_id = _selected_slot_id(slot_id)
+    served = db_service.get_current_student(selected_slot_id) if selected_slot_id else None
 
     if served and selected_slot_id:
-        await db_service.increment_served_count(selected_slot_id)
-        await db_service.clear_current_student(selected_slot_id)
+        db_service.increment_served_count(selected_slot_id)
+        db_service.clear_current_student(selected_slot_id)
 
-    return {"served": served, "state": await _state(slot_id=selected_slot_id)}
+    return {"served": served, "state": _state(slot_id=selected_slot_id)}

@@ -9,6 +9,9 @@ Business logic should live in `app/services/`, not directly in route handlers.
 """
 
 from fastapi import FastAPI
+from fastapi import HTTPException
+from fastapi.responses import FileResponse
+from pathlib import Path
 from typing import Dict
 
 from app.services import db_service
@@ -22,10 +25,19 @@ app.include_router(routes_queue.router)
 app.include_router(routes_state.router)
 app.include_router(routes_ta.router)
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ALLOWED_FRONTEND_FILES = {
+    "index.html",
+    "student.html",
+    "ta.html",
+    "app.js",
+    "styles.css",
+}
+
 
 @app.on_event("startup")
-async def startup() -> None:
-    await db_service.initialize_database()
+def startup() -> None:
+    db_service.initialize_database()
 
 
 @app.get("/health")
@@ -33,6 +45,18 @@ def health_check() -> Dict[str, str]:
     """Simple route to confirm the backend is running."""
 
     return {"status": "ok"}
+
+
+@app.get("/")
+def home_page():
+    return FileResponse(PROJECT_ROOT / "index.html")
+
+
+@app.get("/{file_name}")
+def frontend_file(file_name: str):
+    if file_name not in ALLOWED_FRONTEND_FILES:
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(PROJECT_ROOT / file_name)
 
 
 @app.get("/api/debug/slot-id")

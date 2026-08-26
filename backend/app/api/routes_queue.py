@@ -5,8 +5,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.services import ai_service
-from app.services.db_service import app_state
+from app.services import ai_service, db_service
 from app.services.state_service import build_state
 
 router = APIRouter(tags=["queue"])
@@ -29,28 +28,19 @@ class CreateQueueEntryRequest(BaseModel):
 
 
 def _state(student_id: Optional[str] = None, slot_id: Optional[str] = None):
+    snapshot = db_service.get_app_snapshot()
     return build_state(
-        slots=app_state["availability"],
-        availability=app_state["availability"],
-        queue_entries=app_state["queue"],
-        current_by_slot=app_state["currentBySlot"],
-        served_by_slot=app_state["servedBySlot"],
+        slots=snapshot["slots"],
+        availability=snapshot["availability"],
+        queue_entries=snapshot["queue"],
+        current_by_slot=snapshot["currentBySlot"],
+        served_by_slot=snapshot["servedBySlot"],
         student_id=student_id,
         requested_slot_id=slot_id,
-        tas_active=app_state["tasActive"],
-        avg_help_minutes=app_state["averageHelpMinutes"],
-        forecast=app_state["forecast"],
+        tas_active=snapshot["tasActive"],
+        avg_help_minutes=snapshot["averageHelpMinutes"],
+        forecast=snapshot["forecast"],
     )
-
-
-def _find_entry(entry_id: str):
-    for entry in app_state["queue"]:
-        if entry["id"] == entry_id:
-            return entry
-    for entry in app_state["currentBySlot"].values():
-        if entry and entry["id"] == entry_id:
-            return entry
-    return None
 
 
 def _session_token_for(entry_id: str) -> str:
@@ -59,11 +49,7 @@ def _session_token_for(entry_id: str) -> str:
 
 @router.post("/api/queue", status_code=status.HTTP_201_CREATED)
 def create_queue_entry(payload: CreateQueueEntryRequest):
-    selected_slot = next(
-        (slot for slot in app_state["availability"] if slot["id"] == payload.slot_id),
-        None,
-    )
-    if not selected_slot:
+    if not db_service.find_slot(payload.slot_id):
         raise HTTPException(status_code=400, detail="Choose an available office-hour time slot before joining.")
 
     file = None
@@ -91,15 +77,16 @@ def create_queue_entry(payload: CreateQueueEntryRequest):
         "file": file,
         "ai": ai,
         "status": "waiting",
-        "joinedAt": datetime.now(timezone.utc).isoformat(),
+        "joinedAt": datetime.now(timezone.utc),
     }
-    app_state["queue"].append(entry)
-    app_state["studentSessions"].setdefault(_session_token_for(entry["id"]), []).insert(0, entry)
+    entry = db_service.insert_queue_entry(entry)
+    session_token = _session_token_for(entry["id"])
+    db_service.append_student_session(session_token, entry)
 
     return {
         "entry": entry,
         "queueToken": entry["id"],
-        "sessionToken": _session_token_for(entry["id"]),
+        "sessionToken": session_token,
         "state": _state(student_id=entry["id"], slot_id=payload.slot_id),
     }
 
@@ -130,42 +117,26 @@ def delete_queue_me(
     if not queue_token:
         return {"removed": False, "state": _state(slot_id=slot_id)}
 
-    before_len = len(app_state["queue"])
-    app_state["queue"] = [
-        entry for entry in app_state["queue"] if entry["id"] != queue_token
-    ]
-    for slot, current in list(app_state["currentBySlot"].items()):
-        if current and current["id"] == queue_token:
-            app_state["currentBySlot"][slot] = None
-
-    return {
-        "removed": before_len != len(app_state["queue"]),
-        "state": _state(slot_id=slot_id),
-    }
+    removed = db_service.delete_queue_entry(queue_token)
+    return {"removed": removed, "state": _state(slot_id=slot_id)}
 
 
 @router.delete("/api/queue/{entry_id}", status_code=status.HTTP_200_OK)
 def delete_queue_entry(entry_id: str, slot_id: Optional[str] = Query(default=None)):
-    before_len = len(app_state["queue"])
-    app_state["queue"] = [
-        entry for entry in app_state["queue"] if entry["id"] != entry_id
-    ]
-    return {
-        "removed": before_len != len(app_state["queue"]),
-        "state": _state(slot_id=slot_id),
-    }
+    removed = db_service.delete_queue_entry(entry_id)
+    return {"removed": removed, "state": _state(slot_id=slot_id)}
 
 
 @router.get("/api/student/sessions")
 def student_sessions(session_token: Optional[str] = Header(default=None, alias="X-Session-Token")):
-    sessions = app_state["studentSessions"].get(session_token or "", [])
+    sessions = db_service.list_student_sessions(session_token or "")
     normalized = []
     for entry in sessions:
-        slot = next((item for item in app_state["availability"] if item["id"] == entry["slotId"]), {})
+        slot = db_service.find_slot(entry.get("slotId")) or {}
         normalized.append(
             {
                 **entry,
-                "slotId": entry["slotId"],
+                "slotId": entry.get("slotId"),
                 "date": slot.get("date"),
                 "startTime": slot.get("startTime"),
                 "endTime": slot.get("endTime"),
@@ -173,5 +144,3 @@ def student_sessions(session_token: Optional[str] = Header(default=None, alias="
             }
         )
     return {"sessions": normalized}
-
-

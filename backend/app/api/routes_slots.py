@@ -21,8 +21,8 @@ class CreateAvailabilityRequest(BaseModel):
         allow_population_by_field_name = True
 
 
-async def _state(student_id: Optional[str] = None, slot_id: Optional[str] = None):
-    snapshot = await db_service.get_app_snapshot()
+def _state(student_id: Optional[str] = None, slot_id: Optional[str] = None):
+    snapshot = db_service.get_app_snapshot()
     return build_state(
         slots=snapshot["slots"],
         availability=snapshot["availability"],
@@ -38,15 +38,15 @@ async def _state(student_id: Optional[str] = None, slot_id: Optional[str] = None
 
 
 @router.get("/api/slots")
-async def list_slots():
-    state = await _state()
+def list_slots():
+    state = _state()
     return {"slots": state["slots"]}
 
 
 @router.get("/api/slots/{slot_id}/overview")
-async def slot_overview(slot_id: str):
-    waiting = await db_service.list_waiting_entries(slot_id)
-    settings = await db_service.get_settings()
+def slot_overview(slot_id: str):
+    waiting = db_service.list_waiting_entries(slot_id)
+    settings = db_service.get_settings()
     wait = estimate_wait(
         waiting,
         tas_active=settings["tasActive"],
@@ -62,12 +62,12 @@ async def slot_overview(slot_id: str):
 
 
 @router.get("/api/forecast")
-async def forecast(slot_id: Optional[str] = None):
-    return {"forecast": await db_service.list_forecast()}
+def forecast(slot_id: Optional[str] = None):
+    return {"forecast": db_service.list_forecast()}
 
 
 @router.post("/api/availability", status_code=status.HTTP_201_CREATED)
-async def create_availability(payload: CreateAvailabilityRequest):
+def create_availability(payload: CreateAvailabilityRequest):
     slots = create_thirty_minute_slots(
         date=payload.date[:10],
         start_time=payload.start_time[:5],
@@ -75,18 +75,18 @@ async def create_availability(payload: CreateAvailabilityRequest):
         ta_name=payload.ta_name.strip()[:80] or "TA",
         location=payload.location.strip()[:100] or "Office Hours Room",
     )
-    inserted_slots = await db_service.insert_slots(slots)
+    inserted_slots = db_service.insert_slots(slots)
     selected_slot_id = slots[0]["id"] if slots else None
 
-    return {"slots": inserted_slots, "state": await _state(slot_id=selected_slot_id)}
+    return {"slots": inserted_slots, "state": _state(slot_id=selected_slot_id)}
 
 
 @router.delete("/api/availability/{slot_id}", status_code=status.HTTP_200_OK)
-async def delete_availability(slot_id: str):
-    removed = await db_service.delete_slot(slot_id)
-    slots = await db_service.list_slots()
+def delete_availability(slot_id: str):
+    removed = db_service.delete_slot(slot_id)
+    slots = db_service.list_slots()
     selected_slot_id = slots[0]["id"] if slots else None
     return {
         "removed": removed,
-        "state": await _state(slot_id=selected_slot_id),
+        "state": _state(slot_id=selected_slot_id),
     }

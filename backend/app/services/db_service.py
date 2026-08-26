@@ -1,6 +1,7 @@
 """MongoDB storage helpers for the FastAPI migration."""
 
 import os
+from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -11,11 +12,20 @@ from app.services.scheduling_service import create_slot, slot_id_for
 
 load_dotenv()
 
+try:
+    import certifi
+except ImportError:
+    certifi = None
+
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
 MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "studyline_dev")
 RETENTION_DAYS = int(os.getenv("DB_RETENTION_DAYS", "30"))
 
-client = MongoClient(MONGO_URL)
+client_kwargs = {}
+if certifi is not None and MONGO_URL.startswith("mongodb+srv://"):
+    client_kwargs["tlsCAFile"] = certifi.where()
+
+client = MongoClient(MONGO_URL, **client_kwargs)
 db = client[MONGO_DB_NAME]
 
 slots_collection = db["slots"]
@@ -104,7 +114,8 @@ def insert_slots(slots: list[dict[str, Any]]) -> list[dict[str, Any]]:
     new_slots = [slot for slot in slots if slot["id"] not in existing_ids]
 
     if new_slots:
-        slots_collection.insert_many(new_slots)
+        # PyMongo mutates inserted dictionaries by adding `_id`, so insert copies.
+        slots_collection.insert_many([deepcopy(slot) for slot in new_slots])
 
     return new_slots
 
@@ -154,11 +165,12 @@ def insert_queue_entry(entry: dict[str, Any]) -> dict[str, Any]:
     if not entry:
         raise ValueError("entry cannot be empty")
 
+    entry = deepcopy(entry)
     now = datetime.now(timezone.utc)
     entry.setdefault("createdAt", now)
     entry.setdefault("expiresAt", now + timedelta(days=RETENTION_DAYS))
-    queue_collection.insert_one(entry)
-    return entry
+    queue_collection.insert_one(deepcopy(entry))
+    return _without_id(entry)
 
 
 def delete_queue_entry(entry_id: str) -> bool:
@@ -207,7 +219,9 @@ def set_current_student(slot_id: str, entry: Optional[dict[str, Any]]) -> None:
         clear_current_student(slot_id)
         return
 
+    entry = deepcopy(entry)
     entry.pop("expiresAt", None)
+    entry.pop("_id", None)
     slot_status_collection.update_one(
         {"slotId": slot_id},
         {"$set": {"current": entry}, "$setOnInsert": {"servedCount": 0}},
@@ -262,6 +276,8 @@ def list_forecast() -> list[dict[str, Any]]:
 
 def append_student_session(session_token: str, entry: dict[str, Any]) -> None:
     now = datetime.now(timezone.utc)
+    entry = deepcopy(entry)
+    entry.pop("_id", None)
     sessions_collection.insert_one(
         {
             "sessionToken": session_token,
