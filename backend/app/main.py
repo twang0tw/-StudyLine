@@ -11,7 +11,9 @@ Business logic should live in `app/services/`, not directly in route handlers.
 from fastapi import FastAPI
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
+from fastapi.responses import JSONResponse
 from pathlib import Path
+from pymongo.errors import PyMongoError
 from typing import Dict
 
 from app.services import db_service
@@ -37,14 +39,33 @@ ALLOWED_FRONTEND_FILES = {
 
 @app.on_event("startup")
 def startup() -> None:
-    db_service.initialize_database()
+    try:
+        db_service.initialize_database()
+    except PyMongoError as error:
+        print(f"MongoDB startup check failed: {error}")
+
+
+@app.exception_handler(PyMongoError)
+def mongo_exception_handler(request, error):
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "Database is unavailable. Check your MongoDB Atlas credentials, network access, and connection string."
+        },
+    )
 
 
 @app.get("/health")
 def health_check() -> Dict[str, str]:
     """Simple route to confirm the backend is running."""
 
-    return {"status": "ok"}
+    try:
+        db_service.ping_database()
+        db_status = "ok"
+    except PyMongoError:
+        db_status = "unavailable"
+
+    return {"status": "ok", "database": db_status}
 
 
 @app.get("/")

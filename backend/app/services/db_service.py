@@ -3,6 +3,7 @@
 import os
 from copy import deepcopy
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Optional
 
 from dotenv import load_dotenv
@@ -10,7 +11,8 @@ from pymongo import MongoClient, ReturnDocument
 
 from app.services.scheduling_service import create_slot, slot_id_for
 
-load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+load_dotenv(PROJECT_ROOT / ".env")
 
 try:
     import certifi
@@ -22,6 +24,7 @@ MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "studyline_dev")
 RETENTION_DAYS = int(os.getenv("DB_RETENTION_DAYS", "30"))
 
 client_kwargs = {}
+client_kwargs["serverSelectionTimeoutMS"] = 5000
 if certifi is not None and MONGO_URL.startswith("mongodb+srv://"):
     client_kwargs["tlsCAFile"] = certifi.where()
 
@@ -66,6 +69,7 @@ def _default_slots() -> list[dict[str, str]]:
 
 
 def initialize_database() -> None:
+    client.admin.command("ping")
     slots_collection.create_index("id", unique=True)
     slots_collection.create_index([("date", 1), ("startTime", 1)])
     queue_collection.create_index("id", unique=True)
@@ -314,3 +318,8 @@ def get_app_snapshot() -> dict[str, Any]:
         "averageHelpMinutes": settings["averageHelpMinutes"],
         "forecast": list_forecast(),
     }
+
+
+def ping_database() -> bool:
+    client.admin.command("ping")
+    return True
