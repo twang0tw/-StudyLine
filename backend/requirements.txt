@@ -1,0 +1,6 @@
+fastapi
+openai
+pymongo[srv]
+python-dotenv
+uvicorn[standard]
+certifi

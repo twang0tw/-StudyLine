@@ -1,2 +1,7 @@
 .env
 node_modules/
+.venv/
+.venv*/
+.idea/
+__pycache__/
+*.py[cod]

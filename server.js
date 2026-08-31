@@ -7,8 +7,48 @@ loadEnvFile();
 
 const PORT = Number(process.env.PORT || 5174);
 const PUBLIC_DIR = __dirname;
-
 const today = new Date().toISOString().slice(0, 10);
+
+// =============================================================================
+// MIGRATION INVENTORY
+// =============================================================================
+//
+// FUNCTIONS TO KEEP
+// - slotIdFor: Stable slot identifier format. Keep the concept; rewrite in Python.
+// - createSlot: Core scheduling helper. Keep the concept; rewrite in Python.
+// - formatTime / formatSlot: Presentation helpers. Keep if the backend still owns labels.
+// - createThirtyMinuteSlots: Core availability logic. Rewrite in Python service code.
+// - getEntryHelpMinutes / estimateWait / crowdForWait: Core queue estimation rules.
+// - getSelectedSlotId / buildState: Core read-model logic for student and TA views.
+// - analyzeQuestion / analyzeQuestionWithGemini / analyzeQuestionHeuristically:
+//   Keep the feature, but move the implementation into a Python AI/service layer.
+// - buildQuestionSummary: Keep only if the heuristic fallback remains.
+//
+// FEATURES
+// - Static file serving
+// - Student/TA state snapshot building
+// - Availability management
+// - Student queue join/leave
+// - Staff call-next / serve-current controls
+// - AI-assisted question triage
+// - Demo crowd simulation
+//
+// HARDCODED / DEMO FUNCTIONS
+// - forecast data below is demo data
+// - analyzeQuestionHeuristically is a local fallback/demo approximation
+// - handleSimulateCrowdRoute is demo-only
+//
+// FUNCTIONS TO DELETE AFTER PYTHON TRANSITION
+// - loadEnvFile: Replace with Python settings or dotenv library
+// - sendJson: Replace with framework responses
+// - readJson: Replace with framework request parsing
+// - serveStatic: Replace with FastAPI/Starlette static mount or separate frontend host
+// - handleApi: Replace with framework routers/controllers
+// - server bootstrap at the bottom: Replace with uvicorn / ASGI entrypoint
+
+// =============================================================================
+// HARDCODED / DEMO DATA
+// =============================================================================
 
 const forecast = [
   { time: "10 AM", level: 32, crowd: "low" },
@@ -18,11 +58,11 @@ const forecast = [
 ];
 
 const state = {
-  availability: [
+    availability: [
     createSlot({ date: today, startTime: "11:30", taName: "Bobby", location: "Library 204" }),
     createSlot({ date: today, startTime: "13:00", taName: "Bobby", location: "STEM Center" }),
     createSlot({ date: today, startTime: "15:30", taName: "Bobby", location: "Library 204" }),
-  ],
+    ],
   queue: [
     {
       id: "demo-1",
@@ -83,31 +123,41 @@ const state = {
 };
 
 const mimeTypes = {
-  ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
 };
 
+// =============================================================================
+// FUNCTIONS TO KEEP
+// =============================================================================
+
+// Keep: Stable ID format used across state, queue, and availability.
+// Python rewrite note: Move to a scheduling/domain helper module.
 function slotIdFor(date, startTime) {
   return `slot-${date}-${startTime.replace(":", "")}`;
 }
 
+// Keep: Core slot construction logic for one 30-minute office-hours block.
+// Python rewrite note: Convert into a Pydantic/SQLAlchemy-backed model factory.
 function createSlot({ date, startTime, taName = "Bobby", location = "Office Hours Room" }) {
-  const start = new Date(`${date}T${startTime}:00`);
-  const end = new Date(start.getTime() + 30 * 60 * 1000);
-  const endTime = end.toTimeString().slice(0, 5);
+    const start = new Date(`${date}T${startTime}:00`);
+    const end = new Date(start.getTime() + 30 * 60 * 1000);
+    const endTime = end.toTimeString().slice(0, 5);
 
-  return {
+    return {
     id: slotIdFor(date, startTime),
     date,
     startTime,
     endTime,
     taName,
     location,
-  };
+    };
 }
 
+// Keep: Formats 24-hour times into the labels currently used by the frontend.
+// Python rewrite note: Keep only if the backend continues returning preformatted labels.
 function formatTime(time) {
   const [hourText, minute] = time.split(":");
   const hour = Number(hourText);
@@ -116,10 +166,14 @@ function formatTime(time) {
   return `${displayHour}:${minute} ${suffix}`;
 }
 
+// Keep: Builds a human-readable label for a slot.
+// Python rewrite note: Could move to the frontend later if you want a thinner API.
 function formatSlot(slot) {
   return `${formatTime(slot.startTime)} - ${formatTime(slot.endTime)}`;
 }
 
+// Keep: Expands one availability range into multiple queueable slots.
+// Python rewrite note: This belongs in a scheduling service or domain module.
 function createThirtyMinuteSlots({ date, startTime, endTime, taName, location }) {
   const slots = [];
   let cursor = new Date(`${date}T${startTime}:00`);
@@ -134,46 +188,29 @@ function createThirtyMinuteSlots({ date, startTime, endTime, taName, location })
   return slots;
 }
 
-function loadEnvFile() {
-  const envPath = path.join(__dirname, ".env");
-
-  if (!fs.existsSync(envPath)) {
-    return;
-  }
-
-  const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) {
-      continue;
-    }
-
-    const [key, ...valueParts] = trimmed.split("=");
-    const value = valueParts.join("=").trim().replace(/^["']|["']$/g, "");
-
-    if (!process.env[key]) {
-      process.env[key] = value;
-    }
-  }
-}
-
+// Keep: Resolves the amount of help time an entry contributes to wait estimation.
+// Python rewrite note: Port as part of queue estimation rules.
 function getEntryHelpMinutes(entry) {
   return entry?.ai?.estimatedHelpMinutes || state.averageHelpMinutes;
 }
 
+// Keep: Main wait-time estimation rule for the product.
+// Python rewrite note: Move into a queue service and add tests around it.
 function estimateWait(entries = state.queue) {
   const totalHelpMinutes = entries.reduce((total, entry) => total + getEntryHelpMinutes(entry), 0);
   return Math.max(3, Math.round(totalHelpMinutes / state.tasActive));
 }
 
+// Keep: Maps estimated wait to the crowd bucket used by the UI.
+// Python rewrite note: Small but important business rule to preserve exactly.
 function crowdForWait(wait) {
   if (wait <= 10) return "low";
   if (wait <= 22) return "medium";
   return "high";
 }
 
+// Keep: Chooses which slot the frontend should consider "selected".
+// Python rewrite note: Port this carefully because student and TA flows depend on it.
 function getSelectedSlotId(studentId, requestedSlotId) {
   const studentEntry = studentId
     ? state.queue.find((entry) => entry.id === studentId) || Object.values(state.currentBySlot).find((entry) => entry?.id === studentId)
@@ -182,6 +219,8 @@ function getSelectedSlotId(studentId, requestedSlotId) {
   return requestedSlotId || studentEntry?.slotId || state.availability[0]?.id || null;
 }
 
+// Keep: Builds the full frontend state payload for both student and staff views.
+// Python rewrite note: This should become a dedicated read-model/state service.
 function buildState(studentId, requestedSlotId) {
   const selectedSlotId = getSelectedSlotId(studentId, requestedSlotId);
   const waiting = state.queue.filter((entry) => entry.status === "waiting" && entry.slotId === selectedSlotId);
@@ -238,6 +277,14 @@ function buildState(studentId, requestedSlotId) {
     forecast,
   };
 }
+
+// =============================================================================
+// FEATURE: AI-ASSISTED QUESTION TRIAGE
+// Description: Classifies student questions and estimates how much TA time they
+// may need, so the dashboard can prioritize and predict queue length.
+// Python rewrite note: Yes. Move into an AI/service module with retries,
+// validation, and real observability.
+// =============================================================================
 
 async function analyzeQuestion({ course, need, message, file }) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -300,7 +347,6 @@ async function analyzeQuestionWithGemini({ course, need, message, file, apiKey }
     const messageText = result?.error?.message || `HTTP ${response.status}`;
     throw new Error(messageText);
   }
-
   const text = result?.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
 
   if (!text) {
@@ -333,6 +379,14 @@ function parseJsonObject(text) {
     return JSON.parse(match[0]);
   }
 }
+
+// =============================================================================
+// HARD-CODED / DEMO FUNCTIONS
+// Description: These give the MVP a local fallback and demo behavior, but they
+// should not be treated as final production logic.
+// Python rewrite note: Maybe. Keep only if you still want a non-LLM fallback
+// and a demo mode after the migration.
+// =============================================================================
 
 function analyzeQuestionHeuristically({ course, need, message, file, source = "local-heuristic" }) {
   const text = `${course} ${need} ${message || ""}`.toLowerCase();
@@ -381,6 +435,230 @@ function buildQuestionSummary({ course, need, message, file, reasons }) {
   return `${base}${fileText}${reasonText}`;
 }
 
+// =============================================================================
+// FEATURE: STATE SNAPSHOT
+// Description: Returns the aggregate dashboard payload used by both the
+// student and TA views.
+// Python rewrite note: Yes. This should be a dedicated route + state service.
+// =============================================================================
+
+// finished
+async function handleStateRoute(req, res, url) {
+  sendJson(res, 200, buildState(url.searchParams.get("studentId"), url.searchParams.get("slotId")));
+}
+
+// =============================================================================
+// FEATURE: AVAILABILITY MANAGEMENT
+// Description: Creates and deletes TA office-hour slots, and clears any queue
+// state attached to a removed slot.
+// Python rewrite note: Yes. Persist slots in the database and validate ranges.
+// =============================================================================
+
+// finished
+async function handleCreateAvailabilityRoute(req, res) {
+  const body = await readJson(req);
+  const date = String(body.date || today).slice(0, 10);
+  const startTime = String(body.startTime || "09:00").slice(0, 5);
+  const endTime = String(body.endTime || startTime).slice(0, 5);
+  const taName = String(body.taName || "Bobby").trim().slice(0, 80);
+  const location = String(body.location || "Office Hours Room").trim().slice(0, 100);
+  const slots = createThirtyMinuteSlots({ date, startTime, endTime, taName, location });
+
+  for (const slot of slots) {
+    if (!state.availability.some((existing) => existing.id === slot.id)) {
+      state.availability.push(slot);
+    }
+  }
+
+  state.availability.sort((a, b) => `${a.date}T${a.startTime}`.localeCompare(`${b.date}T${b.startTime}`));
+  sendJson(res, 201, { slots, state: buildState(null, slots[0]?.id) });
+}
+
+//
+async function handleDeleteAvailabilityRoute(req, res, parts) {
+  const slotId = parts[2];
+  const before = state.availability.length;
+  state.availability = state.availability.filter((slot) => slot.id !== slotId);
+  state.queue = state.queue.filter((entry) => entry.slotId !== slotId);
+  delete state.currentBySlot[slotId];
+  delete state.servedBySlot[slotId];
+
+  sendJson(res, 200, {
+    removed: before !== state.availability.length,
+    state: buildState(null, state.availability[0]?.id),
+  });
+}
+
+// =============================================================================
+// FEATURE: STUDENT QUEUE LIFECYCLE
+// Description: Lets a student join a slot-specific queue, stores the AI
+// summary, and allows them to leave.
+// Python rewrite note: Yes. This should become queue endpoints backed by DB
+// rows and proper request/response schemas.
+// =============================================================================
+
+async function handleCreateQueueEntryRoute(req, res) {
+  const body = await readJson(req);
+  const slotId = String(body.slotId || "").trim();
+  const selectedSlot = state.availability.find((slot) => slot.id === slotId);
+
+  if (!selectedSlot) {
+    sendJson(res, 400, { error: "Choose an available office-hour time slot before joining." });
+    return;
+  }
+
+  const file = body.file
+    ? {
+        name: String(body.file.name || "Attached file").trim().slice(0, 120),
+        type: String(body.file.type || "unknown").trim().slice(0, 80),
+        size: Number(body.file.size || 0),
+      }
+    : null;
+  const message = String(body.message || "").trim().slice(0, 1200);
+  const ai = await analyzeQuestion({
+    course: body.course,
+    need: body.need,
+    message,
+    file,
+  });
+  const entry = {
+    id: crypto.randomUUID(),
+    slotId,
+    name: String(body.name || "Student").trim().slice(0, 80),
+    course: String(body.course || "General").trim().slice(0, 80),
+    need: String(body.need || "Office hours help").trim().slice(0, 120),
+    message,
+    file,
+    ai,
+    status: "waiting",
+    joinedAt: Date.now(),
+  };
+
+  state.queue.push(entry);
+  sendJson(res, 201, { entry, state: buildState(entry.id, slotId) });
+}
+
+async function handleDeleteQueueEntryRoute(req, res, url, parts) {
+  const before = state.queue.length;
+  state.queue = state.queue.filter((entry) => entry.id !== parts[2]);
+  sendJson(res, 200, {
+    removed: before !== state.queue.length,
+    state: buildState(null, url.searchParams.get("slotId")),
+  });
+}
+
+// =============================================================================
+// FEATURE: STAFF QUEUE CONTROLS
+// Description: Lets staff call the next student and mark the current student
+// as served for a selected slot.
+// Python rewrite note: Yes. Add transactions/locking once multiple staff users
+// or real persistence exist.
+// =============================================================================
+
+async function handleCallNextRoute(req, res, url) {
+  const slotId = getSelectedSlotId(url.searchParams.get("studentId"), url.searchParams.get("slotId"));
+
+  if (state.currentBySlot[slotId]) {
+    state.servedBySlot[slotId] = (state.servedBySlot[slotId] || 0) + 1;
+  }
+
+  const nextIndex = state.queue.findIndex((entry) => entry.status === "waiting" && entry.slotId === slotId);
+  const next = nextIndex >= 0 ? state.queue.splice(nextIndex, 1)[0] : null;
+
+  if (next) {
+    next.status = "called";
+    next.calledAt = Date.now();
+  }
+
+  state.currentBySlot[slotId] = next;
+  sendJson(res, 200, { next, state: buildState(url.searchParams.get("studentId"), slotId) });
+}
+
+async function handleServeCurrentRoute(req, res, url) {
+  const slotId = getSelectedSlotId(url.searchParams.get("studentId"), url.searchParams.get("slotId"));
+  const served = state.currentBySlot[slotId];
+
+  if (served) {
+    state.servedBySlot[slotId] = (state.servedBySlot[slotId] || 0) + 1;
+    state.currentBySlot[slotId] = null;
+  }
+
+  sendJson(res, 200, { served, state: buildState(url.searchParams.get("studentId"), slotId) });
+}
+
+// =============================================================================
+// FEATURE: DEMO CROWD SIMULATION
+// Description: Randomly mutates the queue to make the MVP feel live during
+// demos. This is intentionally not production logic.
+// Python rewrite note: No for production. Keep only as an optional dev/demo route.
+// =============================================================================
+
+async function handleSimulateCrowdRoute(req, res, url) {
+  const slotId = getSelectedSlotId(url.searchParams.get("studentId"), url.searchParams.get("slotId"));
+  state.tasActive = Math.random() > 0.78 ? 3 : 2;
+  state.averageHelpMinutes = 6 + Math.floor(Math.random() * 4);
+
+  if (Math.random() > 0.5) {
+    state.queue.push({
+      id: crypto.randomUUID(),
+      slotId,
+      name: "Walk-in Student",
+      course: "General",
+      need: "Quick question",
+      message: "Short walk-in question.",
+      file: null,
+      ai: {
+        summary: "Short walk-in question.",
+        estimatedHelpMinutes: 5,
+        confidence: "low",
+        source: "simulation",
+      },
+      status: "waiting",
+      joinedAt: Date.now(),
+    });
+  } else if (state.queue.length > 1) {
+    const removeIndex = state.queue.findIndex((entry) => entry.slotId === slotId);
+
+    if (removeIndex >= 0) {
+      state.queue.splice(removeIndex, 1);
+    }
+  }
+
+  sendJson(res, 200, buildState(url.searchParams.get("studentId"), slotId));
+}
+
+// =============================================================================
+// FUNCTIONS TO DELETE AFTER PYTHON TRANSITION
+// Description: These exist because this file is acting like a mini-framework.
+// Python rewrite note: Replace them with FastAPI/ASGI primitives and then
+// remove them entirely.
+// =============================================================================
+
+function loadEnvFile() {
+  const envPath = path.join(__dirname, ".env");
+
+  if (!fs.existsSync(envPath)) {
+    return;
+  }
+
+  const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) {
+      continue;
+    }
+
+    const [key, ...valueParts] = trimmed.split("=");
+    const value = valueParts.join("=").trim().replace(/^["']|["']$/g, "");
+
+    if (!process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+}
+
 function sendJson(res, status, body) {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
@@ -416,6 +694,9 @@ function readJson(req) {
   });
 }
 
+// Feature: Static file serving
+// Description: Serves the current HTML/CSS/JS frontend directly from this file.
+// Python rewrite note: Replace with FastAPI static files or split frontend hosting.
 function serveStatic(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const requestedPath = url.pathname === "/" ? "/index.html" : url.pathname;
@@ -441,164 +722,51 @@ function serveStatic(req, res) {
   });
 }
 
+// Feature: Manual API router
+// Description: Dispatches each HTTP route in one place because this file uses the
+// Node stdlib directly instead of a backend framework.
+// Python rewrite note: Delete after moving routes into FastAPI routers/controllers.
 async function handleApi(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const parts = url.pathname.split("/").filter(Boolean);
 
   if (req.method === "GET" && url.pathname === "/api/state") {
-    sendJson(res, 200, buildState(url.searchParams.get("studentId"), url.searchParams.get("slotId")));
+    await handleStateRoute(req, res, url);
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/availability") {
-    const body = await readJson(req);
-    const date = String(body.date || today).slice(0, 10);
-    const startTime = String(body.startTime || "09:00").slice(0, 5);
-    const endTime = String(body.endTime || startTime).slice(0, 5);
-    const taName = String(body.taName || "Bobby").trim().slice(0, 80);
-    const location = String(body.location || "Office Hours Room").trim().slice(0, 100);
-    const slots = createThirtyMinuteSlots({ date, startTime, endTime, taName, location });
-
-    for (const slot of slots) {
-      if (!state.availability.some((existing) => existing.id === slot.id)) {
-        state.availability.push(slot);
-      }
-    }
-
-    state.availability.sort((a, b) => `${a.date}T${a.startTime}`.localeCompare(`${b.date}T${b.startTime}`));
-    sendJson(res, 201, { slots, state: buildState(null, slots[0]?.id) });
+    await handleCreateAvailabilityRoute(req, res);
     return;
   }
 
   if (req.method === "DELETE" && parts[0] === "api" && parts[1] === "availability" && parts[2]) {
-    const slotId = parts[2];
-    const before = state.availability.length;
-    state.availability = state.availability.filter((slot) => slot.id !== slotId);
-    state.queue = state.queue.filter((entry) => entry.slotId !== slotId);
-    delete state.currentBySlot[slotId];
-    delete state.servedBySlot[slotId];
-
-    sendJson(res, 200, {
-      removed: before !== state.availability.length,
-      state: buildState(null, state.availability[0]?.id),
-    });
+    await handleDeleteAvailabilityRoute(req, res, parts);
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/queue") {
-    const body = await readJson(req);
-    const slotId = String(body.slotId || "").trim();
-    const selectedSlot = state.availability.find((slot) => slot.id === slotId);
-
-    if (!selectedSlot) {
-      sendJson(res, 400, { error: "Choose an available office-hour time slot before joining." });
-      return;
-    }
-
-    const file = body.file
-      ? {
-          name: String(body.file.name || "Attached file").trim().slice(0, 120),
-          type: String(body.file.type || "unknown").trim().slice(0, 80),
-          size: Number(body.file.size || 0),
-        }
-      : null;
-    const message = String(body.message || "").trim().slice(0, 1200);
-    const ai = await analyzeQuestion({
-      course: body.course,
-      need: body.need,
-      message,
-      file,
-    });
-    const entry = {
-      id: crypto.randomUUID(),
-      slotId,
-      name: String(body.name || "Student").trim().slice(0, 80),
-      course: String(body.course || "General").trim().slice(0, 80),
-      need: String(body.need || "Office hours help").trim().slice(0, 120),
-      message,
-      file,
-      ai,
-      status: "waiting",
-      joinedAt: Date.now(),
-    };
-
-    state.queue.push(entry);
-    sendJson(res, 201, { entry, state: buildState(entry.id, slotId) });
+    await handleCreateQueueEntryRoute(req, res);
     return;
   }
 
   if (req.method === "DELETE" && parts[0] === "api" && parts[1] === "queue" && parts[2]) {
-    const before = state.queue.length;
-    state.queue = state.queue.filter((entry) => entry.id !== parts[2]);
-    sendJson(res, 200, { removed: before !== state.queue.length, state: buildState(null, url.searchParams.get("slotId")) });
+    await handleDeleteQueueEntryRoute(req, res, url, parts);
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/staff/call-next") {
-    const slotId = getSelectedSlotId(url.searchParams.get("studentId"), url.searchParams.get("slotId"));
-
-    if (state.currentBySlot[slotId]) {
-      state.servedBySlot[slotId] = (state.servedBySlot[slotId] || 0) + 1;
-    }
-
-    const nextIndex = state.queue.findIndex((entry) => entry.status === "waiting" && entry.slotId === slotId);
-    const next = nextIndex >= 0 ? state.queue.splice(nextIndex, 1)[0] : null;
-
-    if (next) {
-      next.status = "called";
-      next.calledAt = Date.now();
-    }
-
-    state.currentBySlot[slotId] = next;
-    sendJson(res, 200, { next, state: buildState(url.searchParams.get("studentId"), slotId) });
+    await handleCallNextRoute(req, res, url);
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/staff/serve-current") {
-    const slotId = getSelectedSlotId(url.searchParams.get("studentId"), url.searchParams.get("slotId"));
-    const served = state.currentBySlot[slotId];
-
-    if (served) {
-      state.servedBySlot[slotId] = (state.servedBySlot[slotId] || 0) + 1;
-      state.currentBySlot[slotId] = null;
-    }
-
-    sendJson(res, 200, { served, state: buildState(url.searchParams.get("studentId"), slotId) });
+    await handleServeCurrentRoute(req, res, url);
     return;
   }
 
   if (req.method === "POST" && url.pathname === "/api/simulate-crowd") {
-    const slotId = getSelectedSlotId(url.searchParams.get("studentId"), url.searchParams.get("slotId"));
-    state.tasActive = Math.random() > 0.78 ? 3 : 2;
-    state.averageHelpMinutes = 6 + Math.floor(Math.random() * 4);
-
-    if (Math.random() > 0.5) {
-      state.queue.push({
-        id: crypto.randomUUID(),
-        slotId,
-        name: "Walk-in Student",
-        course: "General",
-        need: "Quick question",
-        message: "Short walk-in question.",
-        file: null,
-        ai: {
-          summary: "Short walk-in question.",
-          estimatedHelpMinutes: 5,
-          confidence: "low",
-          source: "simulation",
-        },
-        status: "waiting",
-        joinedAt: Date.now(),
-      });
-    } else if (state.queue.length > 1) {
-      const removeIndex = state.queue.findIndex((entry) => entry.slotId === slotId);
-
-      if (removeIndex >= 0) {
-        state.queue.splice(removeIndex, 1);
-      }
-    }
-
-    sendJson(res, 200, buildState(url.searchParams.get("studentId"), slotId));
+    await handleSimulateCrowdRoute(req, res, url);
     return;
   }
 
