@@ -858,6 +858,210 @@ textarea {
   font-weight: 900;
 }
 
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 0.82rem;
+}
+
+.form-error {
+  color: var(--red);
+  font-weight: 800;
+}
+
+.notice {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid #bdd9cc;
+  border-radius: 8px;
+  background: #edf8f2;
+  color: var(--green);
+  font-weight: 800;
+}
+
+.auth-panel,
+.course-card,
+.section-hero {
+  display: grid;
+  gap: 18px;
+}
+
+.stack-form,
+.section-form {
+  display: grid;
+  gap: 12px;
+}
+
+.inline-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(140px, auto);
+  align-items: end;
+  gap: 12px;
+}
+
+.dashboard-actions,
+.two-column {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+.course-list {
+  display: grid;
+  gap: 20px;
+}
+
+.share-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.share-panel {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.share-panel small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(110px, 1fr));
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.day-column {
+  min-height: 170px;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #d8e1eb;
+  border-radius: 8px;
+  background: #f8fbfd;
+}
+
+.day-column > strong {
+  color: var(--blue);
+}
+
+.section-mini,
+.past-item {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #d8e1eb;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.section-mini.highlighted,
+.section-hero.highlighted {
+  border-color: #e0a321;
+  background: #fffaf0;
+}
+
+.change-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff2cc;
+  color: #8a5800;
+  font-weight: 800;
+}
+
+.link-button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.link-button span,
+.link-button small {
+  color: var(--muted);
+}
+
+.mini-editor {
+  border-top: 1px solid #e2e9f0;
+  padding-top: 8px;
+}
+
+.mini-editor summary,
+.add-section summary {
+  cursor: pointer;
+  color: var(--blue);
+  font-weight: 900;
+}
+
+.compact-form {
+  margin-top: 10px;
+}
+
+.checkbox-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkbox-line input {
+  width: auto;
+}
+
+.danger-action {
+  border: 1px solid #f0beb9;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fff4f2;
+  color: var(--red);
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.past-list {
+  display: grid;
+  gap: 10px;
+}
+
+.past-item {
+  grid-template-columns: 1fr auto;
+  align-items: center;
+}
+
+.past-item span,
+.past-item small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.back-button {
+  width: max-content;
+}
+
+.section-hero {
+  grid-template-columns: 1fr auto;
+  align-items: start;
+}
+
+.section-hero p:last-child {
+  margin-bottom: 0;
+}
+
 @media (max-width: 900px) {
   .shell {
     grid-template-columns: 1fr;
@@ -870,9 +1074,20 @@ textarea {
   .hero-grid,
   .content-grid,
   .staff-grid,
+  .dashboard-actions,
+  .two-column,
+  .section-hero,
   .role-grid,
   .availability-form {
     grid-template-columns: 1fr;
+  }
+
+  .week-grid {
+    grid-template-columns: repeat(7, minmax(160px, 1fr));
+  }
+
+  .share-panel {
+    justify-items: start;
   }
 }
 

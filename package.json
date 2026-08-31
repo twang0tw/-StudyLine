@@ -4,6 +4,8 @@
   "private": true,
   "description": "AI-powered office hours queue MVP",
   "scripts": {
-    "start": "node server.js"
+    "start": "python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8010",
+    "dev": "python -m uvicorn app.main:app --reload --app-dir backend --host 127.0.0.1 --port 8010",
+    "start:node": "node server.js"
   }
 }

@@ -1,227 +1,43 @@
-let appState = null;
-let studentId = window.localStorage.getItem("oh_student_id");
-let selectedSlotId = window.localStorage.getItem("oh_selected_slot_id");
-let joinedSessions = JSON.parse(window.localStorage.getItem("oh_joined_sessions") || "[]");
-const page = document.body.dataset.page;
+const role = document.body.dataset.page;
+const tokenKey = `studyline_${role}_token`;
+const userKey = `studyline_${role}_user`;
+let authToken = window.localStorage.getItem(tokenKey);
+let currentUser = JSON.parse(window.localStorage.getItem(userKey) || "null");
+let queueToken = window.localStorage.getItem("studyline_queue_token");
+let activeSectionId = new URLSearchParams(window.location.search).get("section") || window.localStorage.getItem(`${role}_active_section`);
+let pendingShareCode = new URLSearchParams(window.location.search).get("code") || "";
+let googleConfig = {
+  googleClientId: "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+  googleConfigured: false,
+};
 
-const form = document.querySelector("#queueForm");
-const queueState = document.querySelector("#queueState");
-const turnBadge = document.querySelector("#turnBadge");
-const placeInLine = document.querySelector("#placeInLine");
-const personalWait = document.querySelector("#personalWait");
-const studentsWaiting = document.querySelector("#studentsWaiting");
-const tasActive = document.querySelector("#tasActive");
-const helpTime = document.querySelector("#helpTime");
-const waitNow = document.querySelector("#waitNow");
-const crowdHeadline = document.querySelector("#crowdHeadline");
-const crowdMeter = document.querySelector("#crowdMeter");
-const recommendations = document.querySelector("#recommendations");
-const forecastEl = document.querySelector("#forecast");
-const notificationTitle = document.querySelector("#notificationTitle");
-const notificationBody = document.querySelector("#notificationBody");
-const currentStudentName = document.querySelector("#currentStudentName");
-const currentStudentNeed = document.querySelector("#currentStudentNeed");
-const staffQueueList = document.querySelector("#staffQueueList");
-const servedCount = document.querySelector("#servedCount");
-const callNext = document.querySelector("#callNext");
-const markServed = document.querySelector("#markServed");
-const studentSlotCalendar = document.querySelector("#studentSlotCalendar");
-const selectedSlotLabel = document.querySelector("#selectedSlotLabel");
-const availabilityForm = document.querySelector("#availabilityForm");
-const taSlotList = document.querySelector("#taSlotList");
-const joinedSessionsList = document.querySelector("#joinedSessionsList");
+const appRoot = document.querySelector("#appRoot");
 const liveClock = document.querySelector("#liveClock");
 
-function crowdLabel(wait) {
-  if (wait <= 10) return { label: "Light", className: "low", color: "#15845c", width: "28%" };
-  if (wait <= 22) return { label: "Moderate", className: "medium", color: "#b86b00", width: "58%" };
-  return { label: "Very Busy", className: "high", color: "#b33b33", width: "88%" };
+function headers() {
+  return {
+    "Content-Type": "application/json",
+    ...(authToken ? { "X-User-Token": authToken } : {}),
+    ...(queueToken ? { "X-Queue-Token": queueToken } : {}),
+  };
 }
 
-function ordinal(value) {
-  const suffix = value === 1 ? "st" : value === 2 ? "nd" : value === 3 ? "rd" : "th";
-  return `${value}${suffix}`;
-}
-
-function renderLiveData() {
-  if (!studentsWaiting || !tasActive || !helpTime || !waitNow || !crowdHeadline || !crowdMeter) {
-    return;
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: { ...headers(), ...(options.headers || {}) },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : {};
+  if (!response.ok) {
+    throw new Error(data.detail || `Request failed: ${response.status}`);
   }
-
-  const wait = appState.live.estimatedWaitMinutes;
-  const crowd = crowdLabel(wait);
-  studentsWaiting.textContent = appState.live.studentsWaiting;
-  tasActive.textContent = appState.live.tasActive;
-  helpTime.textContent = `${appState.live.averageHelpMinutes} min`;
-  waitNow.textContent = `${wait} min`;
-  crowdHeadline.textContent = crowd.label;
-  crowdMeter.style.width = crowd.width;
-  crowdMeter.style.background = crowd.color;
-
-  if (!queueState || !turnBadge || !placeInLine || !personalWait) {
-    return;
-  }
-
-  if (appState.queue.status === "called") {
-    placeInLine.textContent = "Now";
-    personalWait.textContent = "0 min";
-    queueState.classList.remove("hidden");
-    turnBadge.textContent = "Go to TA";
-  } else if (appState.queue.position) {
-    const place = appState.queue.position;
-    placeInLine.textContent = ordinal(place);
-    personalWait.textContent = `${appState.queue.personalWaitMinutes} min`;
-    queueState.classList.remove("hidden");
-    turnBadge.textContent = place === 1 ? "Your turn soon" : "In line";
-  } else {
-    queueState.classList.add("hidden");
-    turnBadge.textContent = "Not in line";
-  }
-}
-
-function renderStaffDashboard() {
-  if (!currentStudentName || !currentStudentNeed || !staffQueueList || !servedCount) {
-    return;
-  }
-
-  const current = appState.staff.currentStudent;
-  servedCount.textContent = `${appState.staff.servedCount} served`;
-
-  if (current) {
-    currentStudentName.textContent = current.name;
-    currentStudentNeed.innerHTML = `
-      <span>${current.course} - ${current.need} - ${current.ai.estimatedHelpMinutes} min estimate</span>
-      <strong>Question</strong>
-      <span>${escapeHtml(current.message || "No question details provided.")}</span>
-      <strong>AI summary</strong>
-      <span>${escapeHtml(current.ai.summary)}</span>
-      ${current.file ? `<span class="file-chip">Attachment: ${escapeHtml(current.file.name)}</span>` : ""}
-    `;
-  } else {
-    currentStudentName.textContent = "No student called";
-    currentStudentNeed.textContent = "Call the next student when a TA is ready.";
-  }
-
-  if (!appState.staff.waitingEntries.length) {
-    staffQueueList.innerHTML = `<div class="empty-state">No students waiting.</div>`;
-    return;
-  }
-
-  staffQueueList.innerHTML = appState.staff.waitingEntries
-    .map(
-      (entry) => `
-        <div class="staff-queue-item">
-          <span class="queue-position">${entry.position}</span>
-          <div>
-            <strong>${entry.name}</strong>
-            <span>${entry.course} - ${entry.need}</span>
-            <p class="student-question"><strong>Question:</strong> ${escapeHtml(entry.message || "No question details provided.")}</p>
-            <p class="ai-summary">${entry.ai.summary}</p>
-            <p class="ai-source">AI source: ${formatAiSource(entry.ai)}</p>
-            ${entry.file ? `<p class="file-chip">Attachment: ${escapeHtml(entry.file.name)}</p>` : ""}
-          </div>
-          <span class="tag ${entry.position === 1 ? "low" : "medium"}">${entry.ai.estimatedHelpMinutes} min help</span>
-        </div>
-      `
-    )
-    .join("");
-}
-
-function renderSlots() {
-  if (!appState.slots?.length) {
-    if (studentSlotCalendar) {
-      studentSlotCalendar.innerHTML = `<div class="empty-state">No TA times available yet.</div>`;
-    }
-
-    if (taSlotList) {
-      taSlotList.innerHTML = `<div class="empty-state">Add your first office-hour block above.</div>`;
-    }
-
-    return;
-  }
-
-  if (!selectedSlotId || !appState.slots.some((slot) => slot.id === selectedSlotId)) {
-    selectedSlotId = appState.selectedSlotId || appState.slots[0].id;
-    window.localStorage.setItem("oh_selected_slot_id", selectedSlotId);
-  }
-
-  if (studentSlotCalendar) {
-    studentSlotCalendar.innerHTML = appState.slots.map(renderSlotButton).join("");
-    selectedSlotLabel.textContent = `Selected: ${getSelectedSlotText()}`;
-  }
-
-  if (taSlotList) {
-    taSlotList.innerHTML = appState.slots.map(renderSlotButton).join("");
-  }
-}
-
-function renderJoinedSessions() {
-  if (!joinedSessionsList) {
-    return;
-  }
-
-  if (!joinedSessions.length) {
-    joinedSessionsList.innerHTML = `<div class="empty-state">No joined sessions yet.</div>`;
-    return;
-  }
-
-  joinedSessionsList.innerHTML = joinedSessions
-    .map((session) => {
-      const isActive = session.studentId === studentId;
-      const status = isActive && appState?.queue?.status ? appState.queue.status.replace("_", " ") : session.status;
-      const wait = isActive && appState?.queue?.personalWaitMinutes ? `${appState.queue.personalWaitMinutes} min wait` : session.waitText;
-
-      return `
-        <div class="joined-session ${isActive ? "active" : ""}">
-          <div>
-            <strong>${escapeHtml(session.slotLabel)}</strong>
-            <span>${escapeHtml(session.course)} - ${escapeHtml(session.need)}</span>
-            <small>${escapeHtml(session.joinedAt)}</small>
-          </div>
-          <span class="tag ${isActive ? "low" : "medium"}">${escapeHtml(status)} / ${escapeHtml(wait)}</span>
-        </div>
-      `;
-    })
-    .join("");
-}
-
-function renderSlotButton(slot) {
-  const isSelected = slot.id === selectedSlotId;
-  const removeButton =
-    page === "ta"
-      ? `<button class="slot-remove" type="button" data-remove-slot-id="${slot.id}" aria-label="Remove ${slot.label}">Remove</button>`
-      : "";
-
-  return `
-    <button class="slot-button ${isSelected ? "selected" : ""}" type="button" data-slot-id="${slot.id}">
-      <strong>${slot.date}</strong>
-      <span>${slot.label}</span>
-      <span>${slot.taName} - ${slot.location}</span>
-      <small>${slot.studentsWaiting} waiting - ${slot.estimatedWaitMinutes} min</small>
-      ${removeButton}
-    </button>
-  `;
-}
-
-function getSelectedSlotText() {
-  const slot = appState.slots.find((item) => item.id === selectedSlotId);
-  return slot ? `${slot.date}, ${slot.label} with ${slot.taName}` : "No slot selected";
-}
-
-function formatAiSource(ai) {
-  if (!ai) {
-    return "unknown";
-  }
-
-  if (ai.source === "gemini") {
-    return ai.model ? `Gemini (${ai.model})` : "Gemini";
-  }
-
-  return "local fallback";
+  return data;
 }
 
 function escapeHtml(value) {
-  return String(value)
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -229,333 +45,659 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-function renderRecommendations() {
-  if (!recommendations) {
+function formatDate(dateText) {
+  return new Date(`${dateText}T12:00:00`).toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatTimeRange(section) {
+  return `${section.startTime || "--:--"} - ${section.endTime || "--:--"}`;
+}
+
+function shareUrl(targetRole, code, sectionId = "") {
+  const page = targetRole === "ta" ? "ta.html" : "student.html";
+  const url = new URL(`${window.location.origin}/${page}`);
+  url.searchParams.set("code", code);
+  if (sectionId) {
+    url.searchParams.set("section", sectionId);
+  }
+  return url.toString();
+}
+
+async function copyText(value) {
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(value);
+  }
+}
+
+async function loadGoogleConfig() {
+  googleConfig = await api("/api/auth/config");
+}
+
+function setActiveSection(sectionId) {
+  activeSectionId = sectionId || null;
+  if (activeSectionId) {
+    window.localStorage.setItem(`${role}_active_section`, activeSectionId);
+    history.replaceState(null, "", `${role}.html?section=${encodeURIComponent(activeSectionId)}`);
+  } else {
+    window.localStorage.removeItem(`${role}_active_section`);
+    history.replaceState(null, "", `${role}.html`);
+  }
+}
+
+function renderShell(title, body) {
+  appRoot.innerHTML = `
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">${role === "ta" ? "TA workspace" : "Student workspace"}</p>
+        <h2>${title}</h2>
+      </div>
+      <div class="topbar-status">
+        <div class="status-pill"><span class="pulse"></span>${currentUser ? escapeHtml(currentUser.name) : "Signed out"}</div>
+        <div class="live-clock"><span>Now</span><strong id="liveClockInline">${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</strong></div>
+      </div>
+    </header>
+    ${body}
+  `;
+}
+
+function renderLogin(error = "") {
+  renderShell(
+    role === "ta" ? "Sign in to manage courses." : "Sign in to join your courses.",
+    `
+      <section class="panel auth-panel">
+        <div>
+          <p class="eyebrow">Google Login</p>
+          <h3>Continue with your school Google account</h3>
+          <p class="muted">StudyLine verifies the Google ID token on the Python backend before creating your app session.</p>
+        </div>
+        <div id="googleSignInButton"></div>
+        ${
+          googleConfig.googleConfigured
+            ? ""
+            : `<p class="form-error">Set GOOGLE_CLIENT_ID in .env before Google login can work. Current placeholder: ${escapeHtml(googleConfig.googleClientId)}</p>`
+        }
+        ${error ? `<p class="form-error">${escapeHtml(error)}</p>` : ""}
+      </section>
+    `
+  );
+
+  renderGoogleButton();
+}
+
+function renderGoogleButton() {
+  if (!googleConfig.googleConfigured) {
     return;
   }
 
-  recommendations.innerHTML = appState.sessions
-    .map(
-      (session) => `
-        <div class="recommendation">
-          <div>
-            <strong>${session.time} - ${session.room}</strong>
-            <span>${session.note}</span>
-          </div>
-          <span class="tag ${session.crowd}">${session.wait} min</span>
-        </div>
-      `
-    )
-    .join("");
-}
-
-function renderForecast() {
-  if (!forecastEl) {
+  if (!window.google?.accounts?.id) {
+    window.setTimeout(renderGoogleButton, 150);
     return;
   }
 
-  forecastEl.innerHTML = appState.forecast
-    .map(
-      (slot) => `
-        <div class="forecast-row">
-          <div>
-            <strong>${slot.time}</strong>
-            <div class="bar"><span class="tag ${slot.crowd}" style="width: ${slot.level}%"></span></div>
-          </div>
-          <span class="tag ${slot.crowd}">${slot.crowd}</span>
-        </div>
-      `
-    )
-    .join("");
+  window.google.accounts.id.initialize({
+    client_id: googleConfig.googleClientId,
+    callback: handleGoogleCredential,
+  });
+  window.google.accounts.id.renderButton(document.querySelector("#googleSignInButton"), {
+    theme: "outline",
+    size: "large",
+    text: "continue_with",
+    width: 280,
+  });
 }
 
-async function api(path, options = {}) {
-  const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
+window.handleGoogleCredential = async function handleGoogleCredential(response) {
+  try {
+    const result = await api("/api/auth/login", {
+      method: "POST",
+      body: {
+        credential: response.credential,
+        role,
+      },
+    });
+    authToken = result.token;
+    currentUser = result.user;
+    window.localStorage.setItem(tokenKey, authToken);
+    window.localStorage.setItem(userKey, JSON.stringify(currentUser));
+    await afterLogin();
+  } catch (error) {
+    renderLogin(error.message);
+  }
+}
+
+async function afterLogin() {
+  if (pendingShareCode) {
+    await joinShareCode(pendingShareCode, true);
+    pendingShareCode = "";
+    return;
+  }
+  if (activeSectionId) {
+    await renderSectionView(activeSectionId);
+    return;
+  }
+  await renderDashboard();
+}
+
+async function joinShareCode(code, fromUrl = false) {
+  const result = await api("/api/share/join", {
+    method: "POST",
+    body: { code, role },
+  });
+  if (result.section) {
+    setActiveSection(result.section.id);
+    await renderSectionView(result.section.id);
+  } else {
+    if (fromUrl) {
+      history.replaceState(null, "", `${role}.html`);
+    }
+    await renderDashboard();
+  }
+}
+
+async function renderDashboard(message = "") {
+  const { courses } = await api(`/api/courses?role=${encodeURIComponent(role)}`);
+  renderShell(
+    role === "ta" ? "Your teaching dashboard." : "Your courses and office hours.",
+    `
+      <section class="dashboard-actions">
+        <form id="shareJoinForm" class="panel inline-form">
+          <label>Enter share code<input name="code" type="text" placeholder="${role === "ta" ? "T-C-ABC123 or T-S-ABC123" : "S-C-ABC123 or S-S-ABC123"}" /></label>
+          <button class="primary-action" type="submit">Join</button>
+        </form>
+        ${
+          role === "ta"
+            ? `<form id="courseForm" class="panel inline-form">
+                <label>Course code<input name="code" type="text" placeholder="CS 101" required /></label>
+                <label>Title<input name="title" type="text" placeholder="Intro Computer Science" /></label>
+                <button class="secondary-action" type="submit">Add Course</button>
+              </form>`
+            : ""
+        }
+      </section>
+      ${message ? `<p class="notice">${escapeHtml(message)}</p>` : ""}
+      <section class="course-list">
+        ${courses.length ? courses.map(renderCourseCard).join("") : `<div class="panel empty-state">No courses yet. Use a share code to join one.</div>`}
+      </section>
+    `
+  );
+
+  document.querySelector("#shareJoinForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const code = new FormData(event.currentTarget).get("code");
+    await joinShareCode(code);
   });
 
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
-  }
+  document.querySelector("#courseForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    await api("/api/courses", {
+      method: "POST",
+      body: { code: form.get("code"), title: form.get("title") },
+    });
+    await renderDashboard("Course added.");
+  });
 
-  return response.json();
+  document.querySelectorAll("[data-open-section]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveSection(button.dataset.openSection);
+      renderSectionView(button.dataset.openSection);
+    });
+  });
+
+  document.querySelectorAll("[data-save-section]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await api(`/api/sections/${button.dataset.saveSection}`, {
+        method: "PATCH",
+        body: { saved: true },
+      });
+      await renderDashboard("Past section saved permanently.");
+    });
+  });
+
+  document.querySelectorAll("[data-delete-section]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await api(`/api/sections/${button.dataset.deleteSection}`, { method: "DELETE" });
+      await renderDashboard("Section deleted.");
+    });
+  });
+
+  document.querySelectorAll("[data-course-section-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      const result = await api("/api/sections", {
+        method: "POST",
+        body: {
+          courseId: form.dataset.courseSectionForm,
+          date: data.get("date"),
+          startTime: data.get("startTime"),
+          endTime: data.get("endTime"),
+          location: data.get("location"),
+          zoomLink: data.get("zoomLink"),
+        },
+      });
+      setActiveSection(result.section.id);
+      await renderSectionView(result.section.id);
+    });
+  });
+
+  document.querySelectorAll("[data-edit-section-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      await api(`/api/sections/${form.dataset.editSectionForm}`, {
+        method: "PATCH",
+        body: {
+          date: data.get("date"),
+          startTime: data.get("startTime"),
+          endTime: data.get("endTime"),
+          location: data.get("location"),
+          zoomLink: data.get("zoomLink"),
+          highlightChange: data.get("highlightChange") === "on",
+        },
+      });
+      await renderDashboard("Section updated.");
+    });
+  });
+
+  document.querySelectorAll("[data-cancel-section]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await api(`/api/sections/${button.dataset.cancelSection}`, {
+        method: "PATCH",
+        body: { status: "cancelled", highlightChange: true },
+      });
+      await renderDashboard("Section cancelled.");
+    });
+  });
+
+  document.querySelectorAll("[data-copy]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await copyText(button.dataset.copy);
+      button.textContent = "Copied";
+    });
+  });
 }
 
-function renderAll(nextState) {
-  appState = nextState;
-  selectedSlotId = nextState.selectedSlotId || selectedSlotId;
-  if (selectedSlotId) {
-    window.localStorage.setItem("oh_selected_slot_id", selectedSlotId);
-  }
-  renderSlots();
-  renderLiveData();
-  renderRecommendations();
-  renderForecast();
-  renderStaffDashboard();
-  renderJoinedSessions();
+function renderCourseCard(course) {
+  return `
+    <article class="panel course-card">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">${escapeHtml(course.code)}</p>
+          <h3>${escapeHtml(course.title || course.code)}</h3>
+        </div>
+        ${
+          role === "ta"
+            ? `<div class="share-row">
+                <button class="secondary-action" data-copy="${escapeHtml(shareUrl("student", course.studentShareCode))}" type="button">Student Course Share</button>
+                <button class="secondary-action" data-copy="${escapeHtml(shareUrl("ta", course.taShareCode))}" type="button">TA Course Share</button>
+              </div>`
+            : ""
+        }
+      </div>
+      ${role === "ta" ? renderAddSectionForm(course) : ""}
+      <div class="two-column">
+        <section>
+          <p class="panel-label">Monday-Sunday Schedule</p>
+          <div class="week-grid">${renderWeekSchedule(course.upcomingSections || [])}</div>
+        </section>
+        <section>
+          <p class="panel-label">Past Participated Sections</p>
+          <div class="past-list">${renderPastSections(course.pastSections || [])}</div>
+        </section>
+      </div>
+    </article>
+  `;
 }
 
-async function loadState() {
-  const params = new URLSearchParams();
-
-  if (page === "student" && studentId) {
-    params.set("studentId", studentId);
-  }
-
-  if (selectedSlotId) {
-    params.set("slotId", selectedSlotId);
-  }
-
-  const query = params.toString() ? `?${params}` : "";
-  renderAll(await api(`/api/state${query}`));
+function renderWeekSchedule(sections) {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  return days
+    .map((day, index) => {
+      const daySections = sections.filter((section) => {
+        const jsDay = new Date(`${section.date}T12:00:00`).getDay();
+        return jsDay === (index + 1) % 7;
+      });
+      return `
+        <div class="day-column">
+          <strong>${day}</strong>
+          ${daySections.length ? daySections.map((section) => renderSectionMini(section, true)).join("") : `<span class="muted small">No sections</span>`}
+        </div>
+      `;
+    })
+    .join("");
 }
 
-form?.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const submitButton = form.querySelector("button[type='submit']");
-  const payload = {
-    name: document.querySelector("#studentName").value,
-    course: document.querySelector("#courseSelect").value,
-    need: document.querySelector("#needSelect").value,
-    message: document.querySelector("#questionMessage").value,
-    file: getSelectedFileMetadata(),
-    slotId: selectedSlotId,
-  };
+function renderSectionMini(section, future) {
+  return `
+    <div class="section-mini ${section.changeHighlighted ? "highlighted" : ""}">
+      <button class="link-button" data-open-section="${section.id}" type="button">
+        <strong>${formatDate(section.date)}</strong>
+        <span>${formatTimeRange(section)}</span>
+        <small>${escapeHtml(section.location || section.zoomLink || "Location TBD")}</small>
+      </button>
+      ${section.changeHighlighted ? `<p class="change-note">${escapeHtml(section.changeNotice || "Updated")}</p>` : ""}
+      ${
+        role === "ta" && future
+          ? `
+            <details class="mini-editor">
+              <summary>Edit</summary>
+              ${renderEditSectionForm(section)}
+              <button class="danger-action" data-cancel-section="${section.id}" type="button">Cancel Section</button>
+            </details>`
+          : ""
+      }
+    </div>
+  `;
+}
 
-  setJoinLoading(true, submitButton);
+function renderPastSections(sections) {
+  if (!sections.length) {
+    return `<div class="empty-state">No past participated sections yet.</div>`;
+  }
+  return sections
+    .map(
+      (section) => `
+        <div class="past-item">
+          <div>
+            <strong>${formatDate(section.date)} ${formatTimeRange(section)}</strong>
+            <span>${escapeHtml(section.location || section.zoomLink || "Location TBD")}</span>
+            ${section.saved ? `<small>Saved permanently</small>` : `<small>Auto-deletes after retention window</small>`}
+          </div>
+          <div class="share-row">
+            ${role === "ta" && !section.saved ? `<button class="secondary-action" data-save-section="${section.id}" type="button">Save</button>` : ""}
+            <button class="danger-action" data-delete-section="${section.id}" type="button">Delete</button>
+          </div>
+        </div>
+      `
+    )
+    .join("");
+}
 
-  try {
+function renderAddSectionForm(course) {
+  const today = new Date().toISOString().slice(0, 10);
+  return `
+    <details class="add-section">
+      <summary>Add New Section</summary>
+      <form class="section-form" data-course-section-form="${course.id}">
+        <label>Date<input name="date" type="date" value="${today}" required /></label>
+        <label>Start<input name="startTime" type="time" value="10:00" required /></label>
+        <label>End<input name="endTime" type="time" value="11:00" required /></label>
+        <label>Location<input name="location" type="text" placeholder="Library 204" /></label>
+        <label>Zoom link<input name="zoomLink" type="url" placeholder="https://..." /></label>
+        <button class="primary-action" type="submit">Create And Open</button>
+      </form>
+    </details>
+  `;
+}
+
+function renderEditSectionForm(section) {
+  return `
+    <form class="section-form compact-form" data-edit-section-form="${section.id}">
+      <label>Date<input name="date" type="date" value="${escapeHtml(section.date)}" /></label>
+      <label>Start<input name="startTime" type="time" value="${escapeHtml(section.startTime)}" /></label>
+      <label>End<input name="endTime" type="time" value="${escapeHtml(section.endTime)}" /></label>
+      <label>Location<input name="location" type="text" value="${escapeHtml(section.location || "")}" /></label>
+      <label>Zoom<input name="zoomLink" type="url" value="${escapeHtml(section.zoomLink || "")}" /></label>
+      <label class="checkbox-line"><input name="highlightChange" type="checkbox" /> Highlight this change for students</label>
+      <button class="secondary-action" type="submit">Save Changes</button>
+    </form>
+  `;
+}
+
+async function renderSectionView(sectionId) {
+  const data = await api(`/api/sections/${sectionId}/state`);
+  const { section, course, state } = data;
+  if (!section || !course) {
+    await renderDashboard("Section not found.");
+    return;
+  }
+
+  renderShell(
+    `${course.code}: ${formatDate(section.date)} office hours.`,
+    `
+      <button id="backToCourses" class="secondary-action back-button" type="button">Back to Courses</button>
+      <section class="panel section-hero ${section.changeHighlighted ? "highlighted" : ""}">
+        <div>
+          <p class="eyebrow">${escapeHtml(course.code)}</p>
+          <h3>${escapeHtml(course.title || course.code)}</h3>
+          <p>${formatDate(section.date)} at ${formatTimeRange(section)} · ${escapeHtml(section.location || section.zoomLink || "Location TBD")}</p>
+          ${section.changeHighlighted ? `<p class="change-note">${escapeHtml(section.changeNotice || "Section details were updated.")}</p>` : ""}
+        </div>
+        ${
+          role === "ta"
+            ? `<div class="share-panel">
+                <button class="secondary-action" data-copy="${escapeHtml(shareUrl("student", section.studentShareCode, section.id))}" type="button">Share Section To Students</button>
+                <button class="secondary-action" data-copy="${escapeHtml(shareUrl("ta", section.taShareCode, section.id))}" type="button">Share Section To TAs</button>
+                <small>Student code: ${escapeHtml(section.studentShareCode)}</small>
+                <small>TA code: ${escapeHtml(section.taShareCode)}</small>
+              </div>`
+            : ""
+        }
+      </section>
+      ${role === "ta" ? renderTaSectionTools(course, section, state) : renderStudentSectionTools(course, section, state)}
+    `
+  );
+
+  document.querySelector("#backToCourses").addEventListener("click", async () => {
+    setActiveSection(null);
+    await renderDashboard();
+  });
+  document.querySelectorAll("[data-copy]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await copyText(button.dataset.copy);
+      button.textContent = "Copied";
+    });
+  });
+  bindSectionActionForms(course, section);
+}
+
+function renderTaSectionTools(course, section, state) {
+  const current = state.staff.currentStudent;
+  return `
+    <section class="two-column">
+      <article class="panel">
+        <p class="panel-label">Course</p>
+        <form id="courseEditForm" class="stack-form">
+          <label>Course code<input name="code" type="text" value="${escapeHtml(course.code)}" /></label>
+          <label>Title<input name="title" type="text" value="${escapeHtml(course.title || "")}" /></label>
+          <button class="secondary-action" type="submit">Update Course</button>
+        </form>
+      </article>
+      <article class="panel">
+        <p class="panel-label">Section Details</p>
+        ${renderEditSectionForm(section)}
+      </article>
+    </section>
+    <section class="hero-grid">
+      <article class="panel crowd-panel">
+        <p class="panel-label">Current Crowd</p>
+        <h3>${state.live.estimatedWaitMinutes} min wait</h3>
+        <div class="metric-row">
+          <div><p class="metric-label">Waiting</p><strong>${state.live.studentsWaiting}</strong></div>
+          <div><p class="metric-label">TAs</p><strong>${state.live.tasActive}</strong></div>
+          <div><p class="metric-label">Avg Help</p><strong>${state.live.averageHelpMinutes} min</strong></div>
+        </div>
+      </article>
+      <article class="panel current-student">
+        <p class="metric-label">Currently helping</p>
+        <h3>${escapeHtml(current?.name || "No student called")}</h3>
+        <p>${current ? escapeHtml(`${current.course} · ${current.need}`) : "Call the next student when ready."}</p>
+        <div class="staff-actions">
+          <button id="callNext" class="primary-action" type="button">Call Next</button>
+          <button id="markServed" class="secondary-action" type="button">Mark Served</button>
+        </div>
+      </article>
+    </section>
+    <section class="panel">
+      <div class="section-heading">
+        <div><p class="eyebrow">Waiting Line</p><h3>Students waiting for help</h3></div>
+        <span class="forecast-note">${state.staff.servedCount} served</span>
+      </div>
+      <div class="staff-queue-list">
+        ${
+          state.staff.waitingEntries.length
+            ? state.staff.waitingEntries
+                .map(
+                  (entry) => `
+                    <div class="staff-queue-item">
+                      <span class="queue-position">${entry.position}</span>
+                      <div>
+                        <strong>${escapeHtml(entry.name)}</strong>
+                        <span>${escapeHtml(entry.course)} · ${escapeHtml(entry.need)}</span>
+                        <p class="student-question">${escapeHtml(entry.message || "No question details provided.")}</p>
+                        <p class="ai-summary">${escapeHtml(entry.ai?.summary || "")}</p>
+                      </div>
+                      <span class="tag medium">${entry.ai?.estimatedHelpMinutes || 7} min</span>
+                    </div>
+                  `
+                )
+                .join("")
+            : `<div class="empty-state">No students waiting.</div>`
+        }
+      </div>
+    </section>
+  `;
+}
+
+function renderStudentSectionTools(course, section, state) {
+  const isInLine = state.queue.status !== "not_joined";
+  return `
+    <section class="hero-grid">
+      <article class="panel">
+        <div class="section-heading">
+          <div><p class="eyebrow">Virtual Line</p><h3>${isInLine ? "You are in line" : "Join this section"}</h3></div>
+          <span class="turn-badge">${escapeHtml(state.queue.status.replace("_", " "))}</span>
+        </div>
+        ${
+          isInLine
+            ? `
+              <div class="queue-state">
+                <div><p class="metric-label">Place</p><strong>${state.queue.status === "called" ? "Now" : state.queue.position || "-"}</strong></div>
+                <div><p class="metric-label">Wait</p><strong>${state.queue.personalWaitMinutes || 0} min</strong></div>
+                <button id="leaveLine" class="secondary-action" type="button">Leave Line</button>
+              </div>`
+            : `
+              <form id="queueForm" class="queue-form">
+                <label>Name<input name="name" type="text" value="${escapeHtml(currentUser?.name || "")}" required /></label>
+                <label>Need<select name="need"><option>Debugging help</option><option>Concept question</option><option>Assignment review</option><option>Exam prep</option></select></label>
+                <label>Question details<textarea name="message" rows="4" placeholder="What are you stuck on?"></textarea></label>
+                <button class="primary-action" type="submit">Join Virtual Line</button>
+              </form>`
+        }
+      </article>
+      <article class="panel crowd-panel">
+        <p class="panel-label">Current Crowd</p>
+        <h3>${state.live.estimatedWaitMinutes} min wait</h3>
+        <div class="metric-row">
+          <div><p class="metric-label">Waiting</p><strong>${state.live.studentsWaiting}</strong></div>
+          <div><p class="metric-label">TAs</p><strong>${state.live.tasActive}</strong></div>
+          <div><p class="metric-label">Avg Help</p><strong>${state.live.averageHelpMinutes} min</strong></div>
+        </div>
+      </article>
+    </section>
+  `;
+}
+
+function bindSectionActionForms(course, section) {
+  document.querySelector("#courseEditForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    await api(`/api/courses/${course.id}`, {
+      method: "PATCH",
+      body: { code: data.get("code"), title: data.get("title") },
+    });
+    await renderSectionView(section.id);
+  });
+
+  document.querySelectorAll("[data-edit-section-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      await api(`/api/sections/${form.dataset.editSectionForm}`, {
+        method: "PATCH",
+        body: {
+          date: data.get("date"),
+          startTime: data.get("startTime"),
+          endTime: data.get("endTime"),
+          location: data.get("location"),
+          zoomLink: data.get("zoomLink"),
+          highlightChange: data.get("highlightChange") === "on",
+        },
+      });
+      await renderSectionView(section.id);
+    });
+  });
+
+  document.querySelector("#callNext")?.addEventListener("click", async () => {
+    await api(`/api/staff/call-next?slot_id=${encodeURIComponent(section.id)}`, { method: "POST" });
+    await renderSectionView(section.id);
+  });
+
+  document.querySelector("#markServed")?.addEventListener("click", async () => {
+    await api(`/api/staff/serve-current?slot_id=${encodeURIComponent(section.id)}`, { method: "POST" });
+    await renderSectionView(section.id);
+  });
+
+  document.querySelector("#queueForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
     const result = await api("/api/queue", {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: {
+        slotId: section.id,
+        course: course.code,
+        name: data.get("name"),
+        need: data.get("need"),
+        message: data.get("message"),
+      },
     });
+    queueToken = result.queueToken;
+    window.localStorage.setItem("studyline_queue_token", queueToken);
+    await renderSectionView(section.id);
+  });
 
-    studentId = result.entry.id;
-    window.localStorage.setItem("oh_student_id", studentId);
-    saveJoinedSession(result.entry, result.state);
-    notificationTitle.textContent = "You joined the virtual line.";
-    notificationBody.textContent = "Keep your spot while you finish what you are doing. We will notify you before your turn.";
-    renderAll(result.state);
-  } catch (error) {
-    notificationTitle.textContent = "Could not join the line.";
-    notificationBody.textContent = error.message || "Please try again in a moment.";
-  } finally {
-    setJoinLoading(false, submitButton);
-  }
-});
-
-function saveJoinedSession(entry, state) {
-  const slot = state.slots.find((item) => item.id === entry.slotId);
-  const record = {
-    studentId: entry.id,
-    slotId: entry.slotId,
-    slotLabel: slot ? `${slot.date}, ${slot.label}` : "Selected office-hour slot",
-    course: entry.course,
-    need: entry.need,
-    status: "waiting",
-    waitText: `${state.queue.personalWaitMinutes || state.live.estimatedWaitMinutes} min wait`,
-    joinedAt: new Date(entry.joinedAt).toLocaleString([], {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }),
-  };
-
-  joinedSessions = [record, ...joinedSessions.filter((session) => session.studentId !== entry.id)].slice(0, 8);
-  window.localStorage.setItem("oh_joined_sessions", JSON.stringify(joinedSessions));
-  renderJoinedSessions();
-}
-
-function updateLiveClock() {
-  if (!liveClock) {
-    return;
-  }
-
-  liveClock.textContent = new Date().toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
+  document.querySelector("#leaveLine")?.addEventListener("click", async () => {
+    await api(`/api/queue/me?slot_id=${encodeURIComponent(section.id)}`, { method: "DELETE" });
+    queueToken = null;
+    window.localStorage.removeItem("studyline_queue_token");
+    await renderSectionView(section.id);
   });
 }
 
-function setJoinLoading(isLoading, submitButton) {
-  if (!submitButton) {
+function updateClock() {
+  if (liveClock) {
+    liveClock.textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+}
+
+async function boot() {
+  updateClock();
+  setInterval(updateClock, 30 * 1000);
+  if (!["student", "ta"].includes(role)) {
     return;
   }
-
-  submitButton.disabled = isLoading;
-  submitButton.classList.toggle("loading", isLoading);
-  submitButton.textContent = isLoading ? "Joining..." : "Join Virtual Line";
-
-  if (notificationTitle && notificationBody && isLoading) {
-    notificationTitle.innerHTML = `<span class="loading-dots"><i></i><i></i><i></i></span>Joining your selected slot`;
-    notificationBody.textContent = "Gemini is summarizing your question and estimating help time. This may take a few seconds.";
-  }
-}
-
-function getSelectedFileMetadata() {
-  const fileInput = document.querySelector("#questionFile");
-  const file = fileInput?.files?.[0];
-
-  if (!file) {
-    return null;
-  }
-
-  return {
-    name: file.name,
-    type: file.type || "unknown",
-    size: file.size,
-  };
-}
-
-document.querySelector("#leaveLine")?.addEventListener("click", async () => {
-  const leavingStudentId = studentId;
-
-  if (studentId) {
-    await api(`/api/queue/${studentId}${buildStateQuery()}`, { method: "DELETE" });
-  }
-
-  studentId = null;
-  window.localStorage.removeItem("oh_student_id");
-  joinedSessions = joinedSessions.map((session) =>
-    session.studentId === leavingStudentId ? { ...session, status: "left", waitText: "left queue" } : session
-  );
-  window.localStorage.setItem("oh_joined_sessions", JSON.stringify(joinedSessions));
-  notificationTitle.textContent = "You left the queue.";
-  notificationBody.textContent = "Check the recommendations to pick a less crowded time.";
-  await loadState();
-});
-
-document.querySelector("#refreshData")?.addEventListener("click", async () => {
-  const query = buildStateQuery();
-  renderAll(await api(`/api/simulate-crowd${query}`, { method: "POST" }));
-});
-
-document.querySelector("#simulateTurn")?.addEventListener("click", async () => {
-  if (!studentId) {
-    notificationTitle.textContent = "Join the line first.";
-    notificationBody.textContent = "Once you are in the queue, this alert tells you when to head over.";
+  await loadGoogleConfig();
+  if (!authToken) {
+    renderLogin();
     return;
   }
-
-  while (appState.queue.position && appState.queue.position > 1) {
-    await api(`/api/staff/call-next${buildStateQuery()}`, { method: "POST" });
-    await loadState();
-  }
-
-  if (appState.queue.position === 1) {
-    await api(`/api/staff/call-next${buildStateQuery()}`, { method: "POST" });
-    await loadState();
-  }
-
-  notificationTitle.textContent = "You have been called.";
-  notificationBody.textContent = "Please go to the TA now. Your virtual spot is being held.";
-});
-
-callNext?.addEventListener("click", async () => {
-  const query = buildStateQuery();
-  const result = await api(`/api/staff/call-next${query}`, { method: "POST" });
-  renderAll(result.state);
-
-  if (page === "student" && result.next && result.next.id === studentId) {
-    notificationTitle.textContent = "You have been called.";
-    notificationBody.textContent = "Please go to the TA now. Your virtual spot is being held.";
-  }
-});
-
-markServed?.addEventListener("click", async () => {
-  const query = buildStateQuery();
-  const result = await api(`/api/staff/serve-current${query}`, { method: "POST" });
-  renderAll(result.state);
-
-  if (page === "student" && result.served && result.served.id === studentId) {
-    studentId = null;
-    window.localStorage.removeItem("oh_student_id");
-    notificationTitle.textContent = "Your office hours visit is complete.";
-    notificationBody.textContent = "Thanks for checking in. You can join again if you need more help.";
-    await loadState();
-  }
-});
-
-document.addEventListener("click", async (event) => {
-  const removeButton = event.target.closest("[data-remove-slot-id]");
-
-  if (removeButton) {
-    event.stopPropagation();
-    const slotId = removeButton.dataset.removeSlotId;
-    const result = await api(`/api/availability/${slotId}`, { method: "DELETE" });
-
-    if (selectedSlotId === slotId) {
-      selectedSlotId = result.state.selectedSlotId;
-      if (selectedSlotId) {
-        window.localStorage.setItem("oh_selected_slot_id", selectedSlotId);
-      } else {
-        window.localStorage.removeItem("oh_selected_slot_id");
-      }
-    }
-
-    renderAll(result.state);
-    return;
-  }
-
-  const slotButton = event.target.closest("[data-slot-id]");
-
-  if (!slotButton) {
-    return;
-  }
-
-  selectedSlotId = slotButton.dataset.slotId;
-  window.localStorage.setItem("oh_selected_slot_id", selectedSlotId);
-  await loadState();
-});
-
-availabilityForm?.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const result = await api("/api/availability", {
-    method: "POST",
-    body: JSON.stringify({
-      date: document.querySelector("#availabilityDate").value,
-      startTime: document.querySelector("#availabilityStart").value,
-      endTime: document.querySelector("#availabilityEnd").value,
-      location: document.querySelector("#availabilityLocation").value,
-      taName: "Bobby",
-    }),
-  });
-
-  renderAll(result.state);
-});
-
-function buildStateQuery() {
-  const params = new URLSearchParams();
-
-  if (page === "student" && studentId) {
-    params.set("studentId", studentId);
-  }
-
-  if (selectedSlotId) {
-    params.set("slotId", selectedSlotId);
-  }
-
-  return params.toString() ? `?${params}` : "";
-}
-
-function setDefaultAvailabilityDate() {
-  const dateInput = document.querySelector("#availabilityDate");
-
-  if (dateInput && !dateInput.value) {
-    dateInput.value = new Date().toISOString().slice(0, 10);
+  try {
+    await api("/api/auth/me");
+    await afterLogin();
+  } catch {
+    authToken = null;
+    currentUser = null;
+    window.localStorage.removeItem(tokenKey);
+    window.localStorage.removeItem(userKey);
+    renderLogin();
   }
 }
 
-if (page === "student" || page === "ta") {
-  updateLiveClock();
-  setInterval(updateLiveClock, 30 * 1000);
-  setDefaultAvailabilityDate();
-  loadState().catch(() => {
-    if (notificationTitle && notificationBody) {
-      notificationTitle.textContent = "Backend is not running.";
-      notificationBody.textContent = "Start it with npm start, then refresh this page.";
-    }
-  });
-}
+boot().catch((error) => {
+  renderShell("Something needs attention.", `<section class="panel form-error">${escapeHtml(error.message)}</section>`);
+});
