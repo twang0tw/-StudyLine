@@ -82,11 +82,7 @@ def login_user(email: str, name: str, role: str, google_sub: str | None = None) 
 
     now = utc_now()
     user_id = f"user-{normalized_email}"
-    user_values = {
-        "name": name.strip() or normalized_email.split("@")[0],
-        "email": normalized_email,
-        "updatedAt": now,
-    }
+    user_values = {"email": normalized_email, "updatedAt": now}
     if google_sub:
         user_values["googleSub"] = google_sub
 
@@ -94,7 +90,13 @@ def login_user(email: str, name: str, role: str, google_sub: str | None = None) 
         {"email": normalized_email},
         {
             "$set": user_values,
-            "$setOnInsert": {"id": user_id, "createdAt": now, "taCourseIds": [], "studentCourseIds": []},
+            "$setOnInsert": {
+                "id": user_id,
+                "name": name.strip() or normalized_email.split("@")[0],
+                "createdAt": now,
+                "taCourseIds": [],
+                "studentCourseIds": [],
+            },
             "$addToSet": {"roles": role},
         },
         upsert=True,
@@ -120,6 +122,25 @@ def user_for_token(token: str | None) -> Optional[dict[str, Any]]:
     if not session:
         return None
     return users_collection.find_one({"id": session["userId"]}, {"_id": 0})
+
+
+def update_user_profile(user_id: str, name: str, preferences: dict[str, Any]) -> dict[str, Any]:
+    """Update the editable profile fields while preserving account identity."""
+    cleaned_name = " ".join((name or "").strip().split())
+    if not 2 <= len(cleaned_name) <= 80:
+        raise ValueError("username must be between 2 and 80 characters")
+    allowed = {"emailNotifications", "compactMode"}
+    clean_preferences = {key: bool(value) for key, value in preferences.items() if key in allowed}
+    now = utc_now()
+    update: dict[str, Any] = {"name": cleaned_name, "updatedAt": now}
+    if clean_preferences:
+        update["preferences"] = clean_preferences
+    updated = users_collection.find_one_and_update(
+        {"id": user_id}, {"$set": update}, return_document=ReturnDocument.AFTER, projection={"_id": 0}
+    )
+    if not updated:
+        raise ValueError("user account was not found")
+    return updated
 
 
 def create_course(user: dict[str, Any], code: str, title: str | None = None) -> dict[str, Any]:

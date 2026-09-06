@@ -17,6 +17,11 @@ class LoginRequest(BaseModel):
     role: str
 
 
+class ProfileUpdateRequest(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    preferences: dict[str, bool] = Field(default_factory=dict)
+
+
 @router.get("/api/auth/config")
 def auth_config():
     return {
@@ -61,3 +66,18 @@ def me(x_user_token: str | None = Header(default=None, alias="X-User-Token")):
     if not user:
         raise HTTPException(status_code=401, detail="Please sign in.")
     return {"user": db_service.serialize(user)}
+
+
+@router.patch("/api/auth/profile")
+def update_profile(
+    payload: ProfileUpdateRequest,
+    x_user_token: str | None = Header(default=None, alias="X-User-Token"),
+):
+    user = db_service.user_for_token(x_user_token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Please sign in.")
+    try:
+        updated = db_service.update_user_profile(user["id"], payload.name, payload.preferences)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {"user": db_service.serialize(updated)}

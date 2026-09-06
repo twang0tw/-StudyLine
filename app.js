@@ -1,10 +1,38 @@
 const role = document.body.dataset.page;
-const tokenKey = `studyline_${role}_token`;
-const userKey = `studyline_${role}_user`;
+const tokenKey = "studyline_auth_token";
+const userKey = "studyline_auth_user";
+
+function readStoredUser(key) {
+  try {
+    return JSON.parse(window.localStorage.getItem(key) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function migrateRoleSession() {
+  if (window.localStorage.getItem(tokenKey)) return;
+  for (const legacyRole of ["student", "ta"]) {
+    const legacyToken = window.localStorage.getItem(`studyline_${legacyRole}_token`);
+    if (!legacyToken) continue;
+    window.localStorage.setItem(tokenKey, legacyToken);
+    const legacyUser = window.localStorage.getItem(`studyline_${legacyRole}_user`);
+    if (legacyUser) window.localStorage.setItem(userKey, legacyUser);
+    for (const staleRole of ["student", "ta"]) {
+      window.localStorage.removeItem(`studyline_${staleRole}_token`);
+      window.localStorage.removeItem(`studyline_${staleRole}_user`);
+    }
+    break;
+  }
+}
+
+migrateRoleSession();
 let authToken = window.localStorage.getItem(tokenKey);
-let currentUser = JSON.parse(window.localStorage.getItem(userKey) || "null");
+let currentUser = readStoredUser(userKey);
 let queueToken = window.localStorage.getItem("studyline_queue_token");
 let activeSectionId = new URLSearchParams(window.location.search).get("section") || window.localStorage.getItem(`${role}_active_section`);
+let activeCourseId = new URLSearchParams(window.location.search).get("course") || window.localStorage.getItem(`${role}_active_course`);
+let returnCourseId = window.sessionStorage.getItem(`${role}_return_course`);
 let pendingShareCode = new URLSearchParams(window.location.search).get("code") || "";
 let googleConfig = {
   googleClientId: "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
@@ -80,10 +108,27 @@ async function loadGoogleConfig() {
 function setActiveSection(sectionId) {
   activeSectionId = sectionId || null;
   if (activeSectionId) {
+    activeCourseId = null;
+    window.localStorage.removeItem(`${role}_active_course`);
     window.localStorage.setItem(`${role}_active_section`, activeSectionId);
     history.replaceState(null, "", `${role}.html?section=${encodeURIComponent(activeSectionId)}`);
   } else {
     window.localStorage.removeItem(`${role}_active_section`);
+    history.replaceState(null, "", `${role}.html`);
+  }
+}
+
+function setActiveCourse(courseId) {
+  activeCourseId = courseId || null;
+  activeSectionId = null;
+  returnCourseId = null;
+  window.sessionStorage.removeItem(`${role}_return_course`);
+  window.localStorage.removeItem(`${role}_active_section`);
+  if (activeCourseId) {
+    window.localStorage.setItem(`${role}_active_course`, activeCourseId);
+    history.replaceState(null, "", `${role}.html?course=${encodeURIComponent(activeCourseId)}`);
+  } else {
+    window.localStorage.removeItem(`${role}_active_course`);
     history.replaceState(null, "", `${role}.html`);
   }
 }
@@ -170,6 +215,7 @@ window.handleGoogleCredential = async function handleGoogleCredential(response) 
 }
 
 async function afterLogin() {
+  document.body.classList.toggle("compact-mode", Boolean(currentUser?.preferences?.compactMode));
   if (pendingShareCode) {
     await joinShareCode(pendingShareCode, true);
     pendingShareCode = "";
@@ -177,6 +223,10 @@ async function afterLogin() {
   }
   if (activeSectionId) {
     await renderSectionView(activeSectionId);
+    return;
+  }
+  if (activeCourseId) {
+    await renderCourseView(activeCourseId);
     return;
   }
   await renderDashboard();
@@ -239,6 +289,13 @@ async function renderDashboard(message = "") {
       body: { code: form.get("code"), title: form.get("title") },
     });
     await renderDashboard("Course added.");
+  });
+
+  document.querySelectorAll("[data-open-course]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveCourse(button.dataset.openCourse);
+      renderCourseView(button.dataset.openCourse);
+    });
   });
 
   document.querySelectorAll("[data-open-section]").forEach((button) => {
@@ -324,34 +381,132 @@ async function renderDashboard(message = "") {
 
 function renderCourseCard(course) {
   return `
-    <article class="panel course-card">
+    <article class="panel course-card course-card-summary">
       <div class="section-heading">
         <div>
           <p class="eyebrow">${escapeHtml(course.code)}</p>
           <h3>${escapeHtml(course.title || course.code)}</h3>
+          <p class="muted">${course.upcomingSections?.length || 0} upcoming office-hour section${course.upcomingSections?.length === 1 ? "" : "s"}</p>
         </div>
-        ${
-          role === "ta"
-            ? `<div class="share-row">
-                <button class="secondary-action" data-copy="${escapeHtml(shareUrl("student", course.studentShareCode))}" type="button">Student Course Share</button>
-                <button class="secondary-action" data-copy="${escapeHtml(shareUrl("ta", course.taShareCode))}" type="button">TA Course Share</button>
-              </div>`
-            : ""
-        }
-      </div>
-      ${role === "ta" ? renderAddSectionForm(course) : ""}
-      <div class="two-column">
-        <section>
-          <p class="panel-label">Monday-Sunday Schedule</p>
-          <div class="week-grid">${renderWeekSchedule(course.upcomingSections || [])}</div>
-        </section>
-        <section>
-          <p class="panel-label">Past Participated Sections</p>
-          <div class="past-list">${renderPastSections(course.pastSections || [])}</div>
-        </section>
+        <button class="primary-action" data-open-course="${course.id}" type="button">Open course</button>
       </div>
     </article>
   `;
+}
+
+async function renderCourseView(courseId, message = "") {
+  const { courses } = await api(`/api/courses?role=${encodeURIComponent(role)}`);
+  const course = courses.find((item) => item.id === courseId);
+  if (!course) {
+    setActiveCourse(null);
+    await renderDashboard("Course not found.");
+    return;
+  }
+
+  renderShell(
+    `${course.code}: ${course.title || course.code}`,
+    `
+      <button id="backToCourses" class="secondary-action back-button" type="button">Back to courses</button>
+      ${message ? `<p class="notice">${escapeHtml(message)}</p>` : ""}
+      ${
+        role === "ta"
+          ? `<section class="course-tools">
+              <article class="panel course-share-card">
+                <div><p class="eyebrow">Share course</p><h3>Invite students or fellow TAs</h3></div>
+                <div class="share-choice-grid">
+                  ${renderShareChoice("Students", course.studentShareCode, shareUrl("student", course.studentShareCode))}
+                  ${renderShareChoice("TAs", course.taShareCode, shareUrl("ta", course.taShareCode))}
+                </div>
+              </article>
+              <article class="panel">${renderAddSectionForm(course)}</article>
+            </section>`
+          : ""
+      }
+      <article class="panel course-schedule-panel">
+        <div class="section-heading">
+          <div><p class="eyebrow">Schedule</p><h3>Upcoming office hours</h3></div>
+          <span class="forecast-note">${course.upcomingSections?.length || 0} scheduled</span>
+        </div>
+        <div class="week-grid course-week-grid">${renderWeekSchedule(course.upcomingSections || [])}</div>
+      </article>
+      <article class="panel course-past-panel">
+        <div class="section-heading"><div><p class="eyebrow">Past sections</p><h3>History</h3></div></div>
+        <div class="past-list">${renderPastSections(course.pastSections || [])}</div>
+      </article>
+    `
+  );
+
+  document.querySelector("#backToCourses").addEventListener("click", async () => {
+    setActiveCourse(null);
+    await renderDashboard();
+  });
+  document.querySelectorAll("[data-open-section]").forEach((button) => {
+    button.addEventListener("click", () => {
+      returnCourseId = course.id;
+      window.sessionStorage.setItem(`${role}_return_course`, course.id);
+      setActiveSection(button.dataset.openSection);
+      renderSectionView(button.dataset.openSection);
+    });
+  });
+  document.querySelectorAll("[data-copy]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await copyText(button.dataset.copy);
+      button.textContent = "Copied";
+    });
+  });
+  document.querySelectorAll("[data-save-section]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await api(`/api/sections/${button.dataset.saveSection}`, { method: "PATCH", body: { saved: true } });
+      await renderCourseView(course.id, "Past section saved permanently.");
+    });
+  });
+  document.querySelectorAll("[data-delete-section]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await api(`/api/sections/${button.dataset.deleteSection}`, { method: "DELETE" });
+      await renderCourseView(course.id, "Section deleted.");
+    });
+  });
+  document.querySelectorAll("[data-cancel-section]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await api(`/api/sections/${button.dataset.cancelSection}`, { method: "PATCH", body: { status: "cancelled", highlightChange: true } });
+      await renderCourseView(course.id, "Section cancelled.");
+    });
+  });
+  document.querySelectorAll("[data-edit-section-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      await api(`/api/sections/${form.dataset.editSectionForm}`, {
+        method: "PATCH",
+        body: { date: data.get("date"), startTime: data.get("startTime"), endTime: data.get("endTime"), location: data.get("location"), zoomLink: data.get("zoomLink"), highlightChange: data.get("highlightChange") === "on" },
+      });
+      await renderCourseView(course.id, "Section updated.");
+    });
+  });
+  document.querySelectorAll("[data-course-section-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      const result = await api("/api/sections", {
+        method: "POST",
+        body: { courseId: course.id, date: data.get("date"), startTime: data.get("startTime"), endTime: data.get("endTime"), location: data.get("location"), zoomLink: data.get("zoomLink") },
+      });
+      setActiveSection(result.section.id);
+      await renderSectionView(result.section.id);
+    });
+  });
+}
+
+function renderShareChoice(label, code, url) {
+  return `
+    <div class="share-choice">
+      <strong>${label}</strong>
+      <code>${escapeHtml(code)}</code>
+      <div class="share-row">
+        <button class="secondary-action" data-copy="${escapeHtml(code)}" type="button">Copy code</button>
+        <button class="secondary-action" data-copy="${escapeHtml(url)}" type="button">Copy URL</button>
+      </div>
+    </div>`;
 }
 
 function renderWeekSchedule(sections) {
@@ -485,6 +640,14 @@ async function renderSectionView(sectionId) {
 
   document.querySelector("#backToCourses").addEventListener("click", async () => {
     setActiveSection(null);
+    if (returnCourseId) {
+      const courseId = returnCourseId;
+      returnCourseId = null;
+      window.sessionStorage.removeItem(`${role}_return_course`);
+      setActiveCourse(courseId);
+      await renderCourseView(courseId);
+      return;
+    }
     await renderDashboard();
   });
   document.querySelectorAll("[data-copy]").forEach((button) => {
@@ -687,7 +850,9 @@ async function boot() {
     return;
   }
   try {
-    await api("/api/auth/me");
+    const session = await api("/api/auth/me");
+    currentUser = session.user;
+    window.localStorage.setItem(userKey, JSON.stringify(currentUser));
     await afterLogin();
   } catch {
     authToken = null;

@@ -858,6 +858,15 @@ textarea {
   font-weight: 900;
 }
 
+.settings-workspace { max-width: 1100px; width: 100%; }
+.settings-card { max-width: 720px; margin: 32px auto; }
+.settings-card form { display: grid; gap: 10px; }
+.settings-card input:not([type="checkbox"]) { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 8px; }
+.settings-readonly { color: var(--muted); }
+.settings-card hr { width: 100%; border: 0; border-top: 1px solid var(--line); margin: 20px 0 8px; }
+.check-row { display: flex; align-items: center; gap: 10px; }
+.settings-actions { display: flex; align-items: center; gap: 14px; margin-top: 18px; }
+
 .muted {
   color: var(--muted);
 }
@@ -888,6 +897,23 @@ textarea {
   gap: 18px;
 }
 
+.auth-panel {
+  width: min(520px, 100%);
+  justify-self: start;
+  align-content: start;
+  padding: 28px;
+}
+
+#googleSignInButton {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+#googleSignInButton > div {
+  max-width: 100%;
+}
+
 .stack-form,
 .section-form {
   display: grid;
@@ -910,7 +936,90 @@ textarea {
 
 .course-list {
   display: grid;
-  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+.course-card-summary {
+  min-height: 180px;
+  align-content: space-between;
+}
+
+.course-card-summary .section-heading {
+  height: 100%;
+}
+
+.course-card-summary .muted {
+  margin: 10px 0 0;
+}
+
+.compact-mode .course-list {
+  gap: 12px;
+}
+
+.compact-mode .course-card-summary {
+  min-height: 136px;
+  padding: 16px;
+}
+
+.course-tools {
+  display: grid;
+  grid-template-columns: minmax(420px, 1.15fr) minmax(280px, 0.85fr);
+  gap: 18px;
+}
+
+.course-share-card {
+  display: grid;
+  gap: 18px;
+}
+
+.share-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.share-choice {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #d8e1eb;
+  border-radius: 8px;
+  background: #f8fbfd;
+}
+
+.share-choice code {
+  width: max-content;
+  max-width: 100%;
+  padding: 5px 8px;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+  background: #eaf1fb;
+  color: var(--blue);
+  font-weight: 800;
+}
+
+.share-choice .share-row {
+  justify-content: flex-start;
+}
+
+.course-schedule-panel,
+.course-past-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.course-week-grid {
+  grid-template-columns: repeat(7, minmax(145px, 1fr));
+}
+
+.course-week-grid .day-column {
+  min-height: 260px;
+  padding: 14px;
+}
+
+.course-week-grid .section-mini {
+  padding: 12px;
 }
 
 .share-row {
@@ -1079,6 +1188,11 @@ textarea {
   .section-hero,
   .role-grid,
   .availability-form {
+    grid-template-columns: 1fr;
+  }
+
+  .course-tools,
+  .share-choice-grid {
     grid-template-columns: 1fr;
   }
 

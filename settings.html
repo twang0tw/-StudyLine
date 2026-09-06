@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Settings | StudyLine</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body data-page="settings">
+    <main class="shell settings-shell">
+      <aside class="sidebar" aria-label="Settings navigation">
+        <div class="brand"><div class="brand-mark">SL</div><div><p class="eyebrow">Account</p><h1>StudyLine</h1></div></div>
+        <nav class="nav"><a class="nav-item" href="student.html">Student Courses</a><a class="nav-item" href="ta.html">TA Workspace</a><a class="nav-item active" href="settings.html">Settings</a></nav>
+      </aside>
+      <section class="workspace settings-workspace">
+        <header class="topbar"><div><p class="eyebrow">Account</p><h2>Settings</h2></div><div id="settingsUser" class="status-pill">Loading…</div></header>
+        <section class="panel settings-card">
+          <p class="eyebrow">Profile</p><h3>Personal details</h3><p class="muted">Your email is managed by Google. Change how your name appears across StudyLine.</p>
+          <form id="profileForm"><label for="name">Username</label><input id="name" name="name" required minlength="2" maxlength="80" autocomplete="name" /><label class="settings-readonly">Email <input id="email" disabled /></label><div id="roles" class="muted"></div>
+            <hr /><p class="eyebrow">Preferences</p><label class="check-row"><input type="checkbox" id="emailNotifications" /> Email notifications</label><label class="check-row"><input type="checkbox" id="compactMode" /> Compact course lists</label>
+            <div class="settings-actions"><button class="primary-action" type="submit">Save changes</button><span id="saveMessage" role="status"></span></div>
+          </form>
+        </section>
+      </section>
+    </main>
+    <script src="settings.js"></script>
+  </body>
+</html>
