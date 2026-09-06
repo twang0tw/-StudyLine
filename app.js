@@ -32,6 +32,8 @@ let currentUser = readStoredUser(userKey);
 let queueToken = window.localStorage.getItem("studyline_queue_token");
 let activeSectionId = new URLSearchParams(window.location.search).get("section") || window.localStorage.getItem(`${role}_active_section`);
 let activeCourseId = new URLSearchParams(window.location.search).get("course") || window.localStorage.getItem(`${role}_active_course`);
+let scheduleWeekOffset = 0;
+let scheduleCourseId = null;
 let returnCourseId = window.sessionStorage.getItem(`${role}_return_course`);
 let pendingShareCode = new URLSearchParams(window.location.search).get("code") || "";
 let googleConfig = {
@@ -40,7 +42,6 @@ let googleConfig = {
 };
 
 const appRoot = document.querySelector("#appRoot");
-const liveClock = document.querySelector("#liveClock");
 
 function headers() {
   return {
@@ -395,6 +396,8 @@ function renderCourseCard(course) {
 }
 
 async function renderCourseView(courseId, message = "") {
+  if (scheduleCourseId !== courseId) scheduleWeekOffset = 0;
+  scheduleCourseId = courseId;
   const { courses } = await api(`/api/courses?role=${encodeURIComponent(role)}`);
   const course = courses.find((item) => item.id === courseId);
   if (!course) {
@@ -418,7 +421,7 @@ async function renderCourseView(courseId, message = "") {
                   ${renderShareChoice("TAs", course.taShareCode, shareUrl("ta", course.taShareCode))}
                 </div>
               </article>
-              <article class="panel">${renderAddSectionForm(course)}</article>
+              <article class="panel add-section-panel">${renderAddSectionForm(course)}</article>
             </section>`
           : ""
       }
@@ -427,7 +430,8 @@ async function renderCourseView(courseId, message = "") {
           <div><p class="eyebrow">Schedule</p><h3>Upcoming office hours</h3></div>
           <span class="forecast-note">${course.upcomingSections?.length || 0} scheduled</span>
         </div>
-        <div class="week-grid course-week-grid">${renderWeekSchedule(course.upcomingSections || [])}</div>
+        <div id="courseCalendar">${renderWeekSchedule(course.upcomingSections || [])}</div>
+        <details class="schedule-details"><summary>All upcoming sections${role === "ta" ? " · edit and manage" : ""}</summary><div class="schedule-agenda">${(course.upcomingSections || []).map((section) => renderSectionMini(section, true)).join("") || `<p class="muted">No sections scheduled yet.</p>`}</div></details>
       </article>
       <article class="panel course-past-panel">
         <div class="section-heading"><div><p class="eyebrow">Past sections</p><h3>History</h3></div></div>
@@ -435,6 +439,23 @@ async function renderCourseView(courseId, message = "") {
       </article>
     `
   );
+
+  document.querySelector("#courseCalendar").addEventListener("click", (event) => {
+    const navigation = event.target.closest("[data-week-step]");
+    if (navigation) {
+      scheduleWeekOffset = navigation.dataset.weekStep === "today" ? 0 : scheduleWeekOffset + Number(navigation.dataset.weekStep);
+      document.querySelector("#courseCalendar").innerHTML = renderWeekSchedule(course.upcomingSections || []);
+      updateClock();
+    }
+    const sectionButton = event.target.closest("[data-calendar-section]");
+    if (sectionButton) {
+      returnCourseId = course.id;
+      window.sessionStorage.setItem(`${role}_return_course`, course.id);
+      setActiveSection(sectionButton.dataset.calendarSection);
+      renderSectionView(sectionButton.dataset.calendarSection);
+    }
+  });
+  updateClock();
 
   document.querySelector("#backToCourses").addEventListener("click", async () => {
     setActiveCourse(null);
@@ -509,22 +530,76 @@ function renderShareChoice(label, code, url) {
     </div>`;
 }
 
+function localDateKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function scheduleMinutes(time) {
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
 function renderWeekSchedule(sections) {
-  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  return days
-    .map((day, index) => {
-      const daySections = sections.filter((section) => {
-        const jsDay = new Date(`${section.date}T12:00:00`).getDay();
-        return jsDay === (index + 1) % 7;
-      });
-      return `
-        <div class="day-column">
-          <strong>${day}</strong>
-          ${daySections.length ? daySections.map((section) => renderSectionMini(section, true)).join("") : `<span class="muted small">No sections</span>`}
-        </div>
-      `;
-    })
-    .join("");
+  const today = new Date();
+  const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  monday.setDate(monday.getDate() - (monday.getDay() + 6) % 7 + scheduleWeekOffset * 7);
+  const dates = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday);
+    date.setDate(date.getDate() + index);
+    return date;
+  });
+  const weekSections = sections.filter((section) => dates.some((date) => localDateKey(date) === section.date));
+  const visibleDates = dates.filter((date, index) => index < 5 || weekSections.some((section) => section.date === localDateKey(date)));
+  const startHour = Math.min(8, ...weekSections.map((section) => Math.floor(scheduleMinutes(section.startTime) / 60)));
+  const endHour = Math.max(18, ...weekSections.map((section) => Math.ceil(scheduleMinutes(section.endTime) / 60)));
+  const height = (endHour - startHour) * 64;
+  const range = `${dates[0].toLocaleDateString([], { month: "short", day: "numeric" })} – ${dates[6].toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}`;
+  return `
+    <div class="calendar-toolbar">
+      <div><strong aria-live="polite">${range}</strong><p class="muted small">Local time · ${weekSections.length} section${weekSections.length === 1 ? "" : "s"} this week</p></div>
+      <div class="share-row"><button class="secondary-action" data-week-step="-1" aria-label="Previous week">‹</button><button class="secondary-action" data-week-step="today">Today</button><button class="secondary-action" data-week-step="1" aria-label="Next week">›</button></div>
+    </div>
+    ${!weekSections.length ? '<p class="calendar-empty muted small">No sections this week. Browse the next week or expand all upcoming sections below.</p>' : ''}
+    <div class="calendar-scroll" tabindex="0" role="region" aria-label="Weekly office hours calendar">
+      <div class="time-calendar" style="--day-count: ${visibleDates.length}; --calendar-height: ${height}px">
+        <div class="calendar-corner">Time</div>
+        ${visibleDates.map((date) => `<div class="calendar-day-heading ${localDateKey(date) === localDateKey(today) ? "is-today" : ""}"><span>${date.toLocaleDateString([], { weekday: "short" })}</span><strong>${date.getDate()}</strong></div>`).join("")}
+        <div class="calendar-hours">${Array.from({ length: endHour - startHour }, (_, index) => `<span style="top:${index * 64}px">${String(startHour + index).padStart(2, "0")}:00</span>`).join("")}</div>
+        ${visibleDates.map((date) => {
+          const key = localDateKey(date);
+          const daySections = weekSections.filter((section) => section.date === key).sort((a, b) => a.startTime.localeCompare(b.startTime));
+          // Group intersecting sections so every event remains visible and clickable.
+          const groups = [];
+          daySections.forEach((section) => {
+            const start = scheduleMinutes(section.startTime);
+            const end = Math.max(scheduleMinutes(section.endTime), start + 30);
+            const last = groups[groups.length - 1];
+            if (last && start < last.end) {
+              last.sections.push(section);
+              last.end = Math.max(last.end, end);
+            } else groups.push({ end, sections: [section] });
+          });
+          return `<div class="calendar-day ${key === localDateKey(today) ? "is-today" : ""}" data-calendar-date="${key}" data-start-hour="${startHour}" data-end-hour="${endHour}">
+            ${groups.map((group) => group.sections.map((section, index) => {
+              const top = (scheduleMinutes(section.startTime) - startHour * 60) / 60 * 64;
+              const duration = Math.max(30, scheduleMinutes(section.endTime) - scheduleMinutes(section.startTime)) / 60 * 64;
+              const label = `${formatTimeRange(section)} · ${section.location || section.zoomLink || "Location TBD"}${section.changeHighlighted ? ` · Updated: ${section.changeNotice || "Check section details"}` : ""}`;
+              return `<button class="calendar-event ${section.changeHighlighted ? "highlighted" : ""}" type="button" data-calendar-section="${escapeHtml(section.id)}" title="${escapeHtml(label)}" aria-label="${escapeHtml(`${formatDate(section.date)} · ${label}`)}" style="top:${top}px;height:${duration}px;left:calc(${index * 100 / group.sections.length}% + 3px);width:calc(${100 / group.sections.length}% - 6px)">${section.changeHighlighted ? '<small class="change-badge">⚠ Updated</small>' : ''}<strong>${escapeHtml(formatTimeRange(section))}</strong><span>${escapeHtml(section.location || section.zoomLink || "Location TBD")}</span></button>`;
+            }).join("")).join("")}
+            <div class="current-time-line" hidden><span></span></div>
+          </div>`;
+        }).join("")}
+      </div>
+    </div>`;
+}
+
+function renderSectionChanges(section) {
+  if (!section.changeHighlighted) return "";
+  const changes = section.changes || [];
+  return `<aside class="change-note" aria-label="Section changes">
+    <strong class="change-heading">⚠ Section updated</strong>
+    ${changes.length ? `<dl class="change-list">${changes.map((change) => `<div><dt>${escapeHtml(change.label)}</dt><dd><span class="change-before">${escapeHtml(change.before || "Not set")}</span><span aria-label="changed to"> → </span><strong>${escapeHtml(change.after || "Not set")}</strong></dd></div>`).join("")}</dl>` : `<p>${escapeHtml(section.changeNotice && section.changeNotice !== "Section details were updated." ? section.changeNotice : "This section was updated before detailed change tracking was available. Check the current details above.")}</p>`}
+  </aside>`;
 }
 
 function renderSectionMini(section, future) {
@@ -535,7 +610,7 @@ function renderSectionMini(section, future) {
         <span>${formatTimeRange(section)}</span>
         <small>${escapeHtml(section.location || section.zoomLink || "Location TBD")}</small>
       </button>
-      ${section.changeHighlighted ? `<p class="change-note">${escapeHtml(section.changeNotice || "Updated")}</p>` : ""}
+      ${renderSectionChanges(section)}
       ${
         role === "ta" && future
           ? `
@@ -598,7 +673,7 @@ function renderEditSectionForm(section) {
       <label>End<input name="endTime" type="time" value="${escapeHtml(section.endTime)}" /></label>
       <label>Location<input name="location" type="text" value="${escapeHtml(section.location || "")}" /></label>
       <label>Zoom<input name="zoomLink" type="url" value="${escapeHtml(section.zoomLink || "")}" /></label>
-      <label class="checkbox-line"><input name="highlightChange" type="checkbox" /> Highlight this change for students</label>
+      <label class="checkbox-line"><input name="highlightChange" type="checkbox" checked /> Highlight this change for students</label>
       <button class="secondary-action" type="submit">Save Changes</button>
     </form>
   `;
@@ -621,7 +696,7 @@ async function renderSectionView(sectionId) {
           <p class="eyebrow">${escapeHtml(course.code)}</p>
           <h3>${escapeHtml(course.title || course.code)}</h3>
           <p>${formatDate(section.date)} at ${formatTimeRange(section)} · ${escapeHtml(section.location || section.zoomLink || "Location TBD")}</p>
-          ${section.changeHighlighted ? `<p class="change-note">${escapeHtml(section.changeNotice || "Section details were updated.")}</p>` : ""}
+          ${renderSectionChanges(section)}
         </div>
         ${
           role === "ta"
@@ -833,9 +908,16 @@ function bindSectionActionForms(course, section) {
 }
 
 function updateClock() {
-  if (liveClock) {
-    liveClock.textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  }
+  const now = new Date();
+  const clock = document.querySelector("#liveClockInline");
+  if (clock) clock.textContent = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  document.querySelectorAll("[data-calendar-date]").forEach((column) => {
+    const marker = column.querySelector(".current-time-line");
+    const minutes = now.getHours() * 60 + now.getMinutes();
+    marker.hidden = column.dataset.calendarDate !== localDateKey(now) || minutes < Number(column.dataset.startHour) * 60 || minutes >= Number(column.dataset.endHour) * 60;
+    marker.style.top = `${(minutes / 60 - Number(column.dataset.startHour)) * 64}px`;
+    marker.title = `Current time: ${now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  });
 }
 
 async function boot() {

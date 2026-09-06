@@ -274,17 +274,28 @@ def update_section(section_id: str, updates: dict[str, Any]) -> Optional[dict[st
         else:
             next_values.pop("courseId", None)
 
-    if updates.get("highlightChange"):
-        change_parts = []
-        for key, value in next_values.items():
-            if section.get(key) != value:
-                change_parts.append(f"{key}: {section.get(key) or 'empty'} -> {value}")
+    labels = {
+        "date": "Date", "startTime": "Start time", "endTime": "End time",
+        "location": "Location", "zoomLink": "Zoom link", "status": "Status",
+        "courseCode": "Course",
+    }
+    changes = [
+        {"field": key, "label": label, "before": section.get(key) or "", "after": next_values[key]}
+        for key, label in labels.items()
+        if key in next_values and (section.get(key) or "") != next_values[key]
+    ]
+    if changes and updates.get("highlightChange"):
         next_values["changeHighlighted"] = True
-        next_values["changeNotice"] = "; ".join(change_parts) or (updates.get("changeNotice") or "Section details were updated.")
+        next_values["changes"] = changes
+        next_values["changeNotice"] = "; ".join(
+            f"{change['label']}: {change['before'] or 'Not set'} → {change['after'] or 'Not set'}"
+            for change in changes
+        )
         next_values["changedAt"] = utc_now()
-    elif next_values:
+    elif changes:
         next_values["changeHighlighted"] = False
         next_values["changeNotice"] = ""
+        next_values["changes"] = []
 
     if updates.get("saved") is True:
         next_values["saved"] = True

@@ -19,7 +19,7 @@ app.include_router(routes_state.router)
 app.include_router(routes_ta.router)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-ALLOWED_FRONTEND_FILES = {"index.html", "student.html", "ta.html", "settings.html", "settings.js", "app.js", "styles.css"}
+ALLOWED_FRONTEND_FILES = {"index.html", "student.html", "ta.html", "settings.html", "settings.js", "navigation.js", "app.js", "styles.css"}
 NO_CACHE_HEADERS = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
 
 
@@ -52,6 +52,13 @@ def health_check() -> Dict[str, str]:
 @app.get("/")
 def home_page():
     return FileResponse(PROJECT_ROOT / "index.html", headers=NO_CACHE_HEADERS)
+
+
+@app.get("/assets/{file_name}")
+def brand_asset(file_name: str):
+    if file_name not in {"studyline_tab_icon.png", "studyline_large_logo.png"}:
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(PROJECT_ROOT / "assets" / file_name)
 
 
 @app.get("/{file_name}")
