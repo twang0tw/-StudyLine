@@ -19,6 +19,7 @@ class UpdateCourseRequest(BaseModel):
 
 class CreateSectionRequest(BaseModel):
     course_id: str = Field(alias="courseId")
+    title: str = Field(default="", max_length=120)
     date: str
     start_time: str = Field(alias="startTime")
     end_time: str = Field(alias="endTime")
@@ -32,6 +33,7 @@ class CreateSectionRequest(BaseModel):
 
 class UpdateSectionRequest(BaseModel):
     course_id: str | None = Field(default=None, alias="courseId")
+    title: str | None = Field(default=None, max_length=120)
     date: str | None = None
     start_time: str | None = Field(default=None, alias="startTime")
     end_time: str | None = Field(default=None, alias="endTime")
@@ -117,6 +119,7 @@ def create_section(
             end_time=payload.end_time,
             location=payload.location,
             zoom_link=payload.zoom_link,
+            title=payload.title,
         )
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -136,6 +139,7 @@ def update_section(
     _require_course_ta(user, existing["courseId"])
     updates = {
         "courseId": payload.course_id,
+        "title": payload.title,
         "date": payload.date,
         "startTime": payload.start_time,
         "endTime": payload.end_time,

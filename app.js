@@ -30,6 +30,10 @@ migrateRoleSession();
 let authToken = window.localStorage.getItem(tokenKey);
 let currentUser = readStoredUser(userKey);
 let queueToken = window.localStorage.getItem("studyline_queue_token");
+let queueNotificationEnabled = window.localStorage.getItem("studyline_queue_notifications") === "true";
+let notifiedQueueToken = window.localStorage.getItem("studyline_notified_queue_token");
+let renderedQueueSignature = "";
+let queuePollInFlight = false;
 let activeSectionId = new URLSearchParams(window.location.search).get("section") || window.localStorage.getItem(`${role}_active_section`);
 let activeCourseId = new URLSearchParams(window.location.search).get("course") || window.localStorage.getItem(`${role}_active_course`);
 let scheduleWeekOffset = 0;
@@ -84,6 +88,39 @@ function formatDate(dateText) {
 
 function formatTimeRange(section) {
   return `${section.startTime || "--:--"} - ${section.endTime || "--:--"}`;
+}
+
+function formatExpiration(value) {
+  const expiresAt = new Date(value);
+  if (Number.isNaN(expiresAt.getTime())) return "the retention window";
+  return expiresAt.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function safeHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) ? url.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function renderSectionAccess(section) {
+  const zoomUrl = safeHttpUrl(section.zoomLink);
+  const taCount = Array.isArray(section.participantTaIds)
+    ? section.participantTaIds.length
+    : section.taIds?.length || 0;
+  return `
+    <div class="section-access">
+      ${zoomUrl ? `<a class="zoom-link" href="${escapeHtml(zoomUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(section.zoomLink)}</a>` : ""}
+      <span class="muted small">${taCount} TA${taCount === 1 ? "" : "s"} holding this section</span>
+    </div>
+  `;
 }
 
 function shareUrl(targetRole, code, sectionId = "") {
@@ -144,10 +181,35 @@ function renderShell(title, body) {
       <div class="topbar-status">
         <div class="status-pill"><span class="pulse"></span>${currentUser ? escapeHtml(currentUser.name) : "Signed out"}</div>
         <div class="live-clock"><span>Now</span><strong id="liveClockInline">${new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</strong></div>
+        ${currentUser ? '<button id="signOut" class="secondary-action" type="button">Sign out</button>' : ""}
       </div>
     </header>
     ${body}
   `;
+  document.querySelector("#signOut")?.addEventListener("click", signOut);
+}
+
+async function signOut() {
+  try {
+    if (queueToken) {
+      const slotQuery = activeSectionId ? `?slot_id=${encodeURIComponent(activeSectionId)}` : "";
+      await api(`/api/queue/me${slotQuery}`, { method: "DELETE" });
+    }
+    await api("/api/auth/session", { method: "DELETE" });
+  } catch {
+    // Local sign-out still completes if the server is temporarily unavailable.
+  }
+  window.google?.accounts?.id?.disableAutoSelect?.();
+  authToken = null;
+  currentUser = null;
+  queueToken = null;
+  notifiedQueueToken = null;
+  renderedQueueSignature = "";
+  window.localStorage.removeItem(tokenKey);
+  window.localStorage.removeItem(userKey);
+  window.localStorage.removeItem("studyline_queue_token");
+  window.localStorage.removeItem("studyline_notified_queue_token");
+  renderLogin();
 }
 
 function renderLogin(error = "") {
@@ -264,7 +326,7 @@ async function renderDashboard(message = "") {
             ? `<form id="courseForm" class="panel inline-form">
                 <label>Course code<input name="code" type="text" placeholder="CS 101" required /></label>
                 <label>Title<input name="title" type="text" placeholder="Intro Computer Science" /></label>
-                <button class="secondary-action" type="submit">Add Course</button>
+                <button class="secondary-action" type="submit">Create Course</button>
               </form>`
             : ""
         }
@@ -331,6 +393,7 @@ async function renderDashboard(message = "") {
         method: "POST",
         body: {
           courseId: form.dataset.courseSectionForm,
+          title: data.get("title"),
           date: data.get("date"),
           startTime: data.get("startTime"),
           endTime: data.get("endTime"),
@@ -350,6 +413,7 @@ async function renderDashboard(message = "") {
       await api(`/api/sections/${form.dataset.editSectionForm}`, {
         method: "PATCH",
         body: {
+          title: data.get("title"),
           date: data.get("date"),
           startTime: data.get("startTime"),
           endTime: data.get("endTime"),
@@ -414,13 +478,7 @@ async function renderCourseView(courseId, message = "") {
       ${
         role === "ta"
           ? `<section class="course-tools">
-              <article class="panel course-share-card">
-                <div><p class="eyebrow">Share course</p><h3>Invite students or fellow TAs</h3></div>
-                <div class="share-choice-grid">
-                  ${renderShareChoice("Students", course.studentShareCode, shareUrl("student", course.studentShareCode))}
-                  ${renderShareChoice("TAs", course.taShareCode, shareUrl("ta", course.taShareCode))}
-                </div>
-              </article>
+              <article class="panel course-share-card">${renderShareCoursePanel(course)}</article>
               <article class="panel add-section-panel">${renderAddSectionForm(course)}</article>
             </section>`
           : ""
@@ -499,7 +557,7 @@ async function renderCourseView(courseId, message = "") {
       const data = new FormData(event.currentTarget);
       await api(`/api/sections/${form.dataset.editSectionForm}`, {
         method: "PATCH",
-        body: { date: data.get("date"), startTime: data.get("startTime"), endTime: data.get("endTime"), location: data.get("location"), zoomLink: data.get("zoomLink"), highlightChange: data.get("highlightChange") === "on" },
+        body: { title: data.get("title"), date: data.get("date"), startTime: data.get("startTime"), endTime: data.get("endTime"), location: data.get("location"), zoomLink: data.get("zoomLink"), highlightChange: data.get("highlightChange") === "on" },
       });
       await renderCourseView(course.id, "Section updated.");
     });
@@ -510,7 +568,7 @@ async function renderCourseView(courseId, message = "") {
       const data = new FormData(event.currentTarget);
       const result = await api("/api/sections", {
         method: "POST",
-        body: { courseId: course.id, date: data.get("date"), startTime: data.get("startTime"), endTime: data.get("endTime"), location: data.get("location"), zoomLink: data.get("zoomLink") },
+        body: { courseId: course.id, title: data.get("title"), date: data.get("date"), startTime: data.get("startTime"), endTime: data.get("endTime"), location: data.get("location"), zoomLink: data.get("zoomLink") },
       });
       setActiveSection(result.section.id);
       await renderSectionView(result.section.id);
@@ -583,8 +641,8 @@ function renderWeekSchedule(sections) {
             ${groups.map((group) => group.sections.map((section, index) => {
               const top = (scheduleMinutes(section.startTime) - startHour * 60) / 60 * 64;
               const duration = Math.max(30, scheduleMinutes(section.endTime) - scheduleMinutes(section.startTime)) / 60 * 64;
-              const label = `${formatTimeRange(section)} · ${section.location || section.zoomLink || "Location TBD"}${section.changeHighlighted ? ` · Updated: ${section.changeNotice || "Check section details"}` : ""}`;
-              return `<button class="calendar-event ${section.changeHighlighted ? "highlighted" : ""}" type="button" data-calendar-section="${escapeHtml(section.id)}" title="${escapeHtml(label)}" aria-label="${escapeHtml(`${formatDate(section.date)} · ${label}`)}" style="top:${top}px;height:${duration}px;left:calc(${index * 100 / group.sections.length}% + 3px);width:calc(${100 / group.sections.length}% - 6px)">${section.changeHighlighted ? '<small class="change-badge">⚠ Updated</small>' : ''}<strong>${escapeHtml(formatTimeRange(section))}</strong><span>${escapeHtml(section.location || section.zoomLink || "Location TBD")}</span></button>`;
+              const label = `${section.title || "Office Hour"} · ${formatTimeRange(section)} · ${section.location || section.zoomLink || "Location TBD"}${section.changeHighlighted ? ` · Updated: ${section.changeNotice || "Check section details"}` : ""}`;
+              return `<button class="calendar-event ${section.changeHighlighted ? "highlighted" : ""}" type="button" data-calendar-section="${escapeHtml(section.id)}" title="${escapeHtml(label)}" aria-label="${escapeHtml(`${formatDate(section.date)} · ${label}`)}" style="top:${top}px;height:${duration}px;left:calc(${index * 100 / group.sections.length}% + 3px);width:calc(${100 / group.sections.length}% - 6px)">${section.changeHighlighted ? '<small class="change-badge">⚠ Updated</small>' : ''}<strong>${escapeHtml(section.title || "Office Hour")}</strong><span>${escapeHtml(formatTimeRange(section))}</span><small>${escapeHtml(section.location || section.zoomLink || "Location TBD")}</small></button>`;
             }).join("")).join("")}
             <div class="current-time-line" hidden><span></span></div>
           </div>`;
@@ -606,7 +664,8 @@ function renderSectionMini(section, future) {
   return `
     <div class="section-mini ${section.changeHighlighted ? "highlighted" : ""}">
       <button class="link-button" data-open-section="${section.id}" type="button">
-        <strong>${formatDate(section.date)}</strong>
+        <strong>${escapeHtml(section.title || "Office Hour")}</strong>
+        <span>${formatDate(section.date)}</span>
         <span>${formatTimeRange(section)}</span>
         <small>${escapeHtml(section.location || section.zoomLink || "Location TBD")}</small>
       </button>
@@ -636,7 +695,7 @@ function renderPastSections(sections) {
           <div>
             <strong>${formatDate(section.date)} ${formatTimeRange(section)}</strong>
             <span>${escapeHtml(section.location || section.zoomLink || "Location TBD")}</span>
-            ${section.saved ? `<small>Saved permanently</small>` : `<small>Auto-deletes after retention window</small>`}
+            ${section.saved ? `<small>Saved permanently</small>` : `<small>Auto-deletes at ${formatExpiration(section.expiresAt)} unless saved</small>`}
           </div>
           <div class="share-row">
             ${role === "ta" && !section.saved ? `<button class="secondary-action" data-save-section="${section.id}" type="button">Save</button>` : ""}
@@ -654,6 +713,7 @@ function renderAddSectionForm(course) {
     <details class="add-section">
       <summary>Add New Section</summary>
       <form class="section-form" data-course-section-form="${course.id}">
+        <label>Title<input name="title" type="text" maxlength="120" value="${escapeHtml(`${currentUser?.name || "TA"}'s Office Hour`)}" required /></label>
         <label>Date<input name="date" type="date" value="${today}" required /></label>
         <label>Start<input name="startTime" type="time" value="10:00" required /></label>
         <label>End<input name="endTime" type="time" value="11:00" required /></label>
@@ -665,9 +725,25 @@ function renderAddSectionForm(course) {
   `;
 }
 
+function renderShareCoursePanel(course) {
+  return `
+    <details class="add-section">
+      <summary>Share this course</summary>
+      <div>
+        <p class="muted smallc">After joining this course, students can view or join all sections, and TAs will have the edit permissions</p>
+      </div>
+      <div class="share-choice-grid">
+        ${renderShareChoice("Students", course.studentShareCode, shareUrl("student", course.studentShareCode))}
+        ${renderShareChoice("TAs", course.taShareCode, shareUrl("ta", course.taShareCode))}
+      </div>
+    </details>
+  `
+}
+
 function renderEditSectionForm(section) {
   return `
     <form class="section-form compact-form" data-edit-section-form="${section.id}">
+      <label>Title<input name="title" type="text" maxlength="120" value="${escapeHtml(section.title || "Office Hour")}" required /></label>
       <label>Date<input name="date" type="date" value="${escapeHtml(section.date)}" /></label>
       <label>Start<input name="startTime" type="time" value="${escapeHtml(section.startTime)}" /></label>
       <label>End<input name="endTime" type="time" value="${escapeHtml(section.endTime)}" /></label>
@@ -688,14 +764,15 @@ async function renderSectionView(sectionId) {
   }
 
   renderShell(
-    `${course.code}: ${formatDate(section.date)} office hours.`,
+    `${course.code}: ${section.title || "Office Hour"}`,
     `
       <button id="backToCourses" class="secondary-action back-button" type="button">Back to Courses</button>
       <section class="panel section-hero ${section.changeHighlighted ? "highlighted" : ""}">
         <div>
           <p class="eyebrow">${escapeHtml(course.code)}</p>
-          <h3>${escapeHtml(course.title || course.code)}</h3>
-          <p>${formatDate(section.date)} at ${formatTimeRange(section)} · ${escapeHtml(section.location || section.zoomLink || "Location TBD")}</p>
+          <h3>${escapeHtml(section.title || "Office Hour")}</h3>
+          <p>${formatDate(section.date)} at ${formatTimeRange(section)} · ${escapeHtml(section.location || "Location TBD")}</p>
+          ${renderSectionAccess(section)}
           ${renderSectionChanges(section)}
         </div>
         ${
@@ -712,6 +789,8 @@ async function renderSectionView(sectionId) {
       ${role === "ta" ? renderTaSectionTools(course, section, state) : renderStudentSectionTools(course, section, state)}
     `
   );
+  renderedQueueSignature = queueStateSignature(state);
+  maybeNotifyNextStudent(course, section, state);
 
   document.querySelector("#backToCourses").addEventListener("click", async () => {
     setActiveSection(null);
@@ -757,7 +836,7 @@ function renderTaSectionTools(course, section, state) {
         <h3>${state.live.estimatedWaitMinutes} min wait</h3>
         <div class="metric-row">
           <div><p class="metric-label">Waiting</p><strong>${state.live.studentsWaiting}</strong></div>
-          <div><p class="metric-label">TAs</p><strong>${state.live.tasActive}</strong></div>
+          <div><p class="metric-label">Section TAs</p><strong>${state.live.tasActive}</strong></div>
           <div><p class="metric-label">Avg Help</p><strong>${state.live.averageHelpMinutes} min</strong></div>
         </div>
       </article>
@@ -824,6 +903,7 @@ function renderStudentSectionTools(course, section, state) {
                 <label>Name<input name="name" type="text" value="${escapeHtml(currentUser?.name || "")}" required /></label>
                 <label>Need<select name="need"><option>Debugging help</option><option>Concept question</option><option>Assignment review</option><option>Exam prep</option></select></label>
                 <label>Question details<textarea name="message" rows="4" placeholder="What are you stuck on?"></textarea></label>
+                <label class="checkbox-line"><input name="notifyWhenNext" type="checkbox" checked /> Notify me in this browser when I am next</label>
                 <button class="primary-action" type="submit">Join Virtual Line</button>
               </form>`
         }
@@ -833,7 +913,7 @@ function renderStudentSectionTools(course, section, state) {
         <h3>${state.live.estimatedWaitMinutes} min wait</h3>
         <div class="metric-row">
           <div><p class="metric-label">Waiting</p><strong>${state.live.studentsWaiting}</strong></div>
-          <div><p class="metric-label">TAs</p><strong>${state.live.tasActive}</strong></div>
+          <div><p class="metric-label">Section TAs</p><strong>${state.live.tasActive}</strong></div>
           <div><p class="metric-label">Avg Help</p><strong>${state.live.averageHelpMinutes} min</strong></div>
         </div>
       </article>
@@ -859,6 +939,7 @@ function bindSectionActionForms(course, section) {
       await api(`/api/sections/${form.dataset.editSectionForm}`, {
         method: "PATCH",
         body: {
+          title: data.get("title"),
           date: data.get("date"),
           startTime: data.get("startTime"),
           endTime: data.get("endTime"),
@@ -884,6 +965,11 @@ function bindSectionActionForms(course, section) {
   document.querySelector("#queueForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    queueNotificationEnabled = data.get("notifyWhenNext") === "on";
+    window.localStorage.setItem("studyline_queue_notifications", String(queueNotificationEnabled));
+    const permissionRequest = queueNotificationEnabled && "Notification" in window && Notification.permission === "default"
+      ? Notification.requestPermission()
+      : Promise.resolve("Notification" in window ? Notification.permission : "unsupported");
     const result = await api("/api/queue", {
       method: "POST",
       body: {
@@ -895,16 +981,75 @@ function bindSectionActionForms(course, section) {
       },
     });
     queueToken = result.queueToken;
+    notifiedQueueToken = null;
     window.localStorage.setItem("studyline_queue_token", queueToken);
+    await permissionRequest;
     await renderSectionView(section.id);
   });
 
   document.querySelector("#leaveLine")?.addEventListener("click", async () => {
     await api(`/api/queue/me?slot_id=${encodeURIComponent(section.id)}`, { method: "DELETE" });
     queueToken = null;
+    notifiedQueueToken = null;
     window.localStorage.removeItem("studyline_queue_token");
+    window.localStorage.removeItem("studyline_notified_queue_token");
     await renderSectionView(section.id);
   });
+}
+
+function queueStateSignature(state) {
+  return JSON.stringify([
+    state.queue.status,
+    state.queue.position,
+    state.queue.personalWaitMinutes,
+    state.live.studentsWaiting,
+    state.live.estimatedWaitMinutes,
+  ]);
+}
+
+function maybeNotifyNextStudent(course, section, state) {
+  if (
+    role !== "student" ||
+    !queueToken ||
+    !queueNotificationEnabled ||
+    state.queue.status !== "next" ||
+    notifiedQueueToken === queueToken ||
+    !("Notification" in window) ||
+    Notification.permission !== "granted"
+  ) return;
+
+  new Notification("You’re next in line", {
+    body: `${course.code}: ${section.title || "Office Hour"}`,
+    tag: `studyline-next-${queueToken}`,
+  });
+  notifiedQueueToken = queueToken;
+  window.localStorage.setItem("studyline_notified_queue_token", queueToken);
+}
+
+async function pollQueueState() {
+  if (role !== "student" || !queueToken || queuePollInFlight) return;
+  queuePollInFlight = true;
+  try {
+    const queue = await api("/api/queue/me");
+    if (queue.status === "not_joined") {
+      queueToken = null;
+      notifiedQueueToken = null;
+      window.localStorage.removeItem("studyline_queue_token");
+      window.localStorage.removeItem("studyline_notified_queue_token");
+      if (activeSectionId) await renderSectionView(activeSectionId);
+      return;
+    }
+    const sectionId = queue.slot_id || activeSectionId;
+    if (!sectionId) return;
+    const data = await api(`/api/sections/${sectionId}/state`);
+    const signature = queueStateSignature(data.state);
+    maybeNotifyNextStudent(data.course, data.section, data.state);
+    if (sectionId === activeSectionId && signature !== renderedQueueSignature) {
+      await renderSectionView(sectionId);
+    }
+  } finally {
+    queuePollInFlight = false;
+  }
 }
 
 function updateClock() {
@@ -923,6 +1068,7 @@ function updateClock() {
 async function boot() {
   updateClock();
   setInterval(updateClock, 30 * 1000);
+  setInterval(() => pollQueueState().catch(() => {}), 15 * 1000);
   if (!["student", "ta"].includes(role)) {
     return;
   }

@@ -32,14 +32,16 @@ def build_state(
     position = _position_for_student(waiting, student_id)
     current_student = current_by_slot.get(selected_slot_id) if selected_slot_id else None
     is_current_student = bool(student_id and current_student and current_student.get("id") == student_id)
-    wait_time = estimate_wait(waiting, tas_active, avg_help_minutes)
+    selected_slot = next((slot for slot in slots if slot.get("id") == selected_slot_id), None)
+    section_ta_count = _section_ta_count(selected_slot, tas_active)
+    wait_time = estimate_wait(waiting, section_ta_count, avg_help_minutes)
 
     return {
         "slots": [_slot_state(slot, queue_entries, tas_active, avg_help_minutes) for slot in slots],
         "selectedSlotId": selected_slot_id,
         "live": {
             "studentsWaiting": len(waiting),
-            "tasActive": tas_active,
+            "tasActive": section_ta_count,
             "averageHelpMinutes": avg_help_minutes,
             "estimatedWaitMinutes": wait_time,
             "crowd": crowd_level(wait_time),
@@ -47,7 +49,7 @@ def build_state(
         "queue": {
             "studentId": student_id or None,
             "position": position if position > 0 else None,
-            "personalWaitMinutes": estimate_wait(waiting[:position], tas_active, avg_help_minutes) if position > 0 else None,
+            "personalWaitMinutes": estimate_wait(waiting[:position], section_ta_count, avg_help_minutes) if position > 0 else None,
             "status": "called" if is_current_student else "next" if position == 1 else "waiting" if position > 1 else "not_joined",
         },
         "staff": {
@@ -56,7 +58,7 @@ def build_state(
                 {
                     **entry,
                     "position": index + 1,
-                    "estimatedWaitMinutes": estimate_wait(waiting[: index + 1], tas_active, avg_help_minutes),
+                    "estimatedWaitMinutes": estimate_wait(waiting[: index + 1], section_ta_count, avg_help_minutes),
                 }
                 for index, entry in enumerate(waiting)
             ],
@@ -94,7 +96,7 @@ def _selected_slot_id(student_id, requested_slot_id, slots, queue_entries, curre
 
 def _slot_state(slot, queue_entries, tas_active, avg_help_minutes):
     waiting = [entry for entry in queue_entries if entry.get("status") == "waiting" and entry.get("slotId") == slot.get("id")]
-    wait = estimate_wait(waiting, tas_active, avg_help_minutes)
+    wait = estimate_wait(waiting, _section_ta_count(slot, tas_active), avg_help_minutes)
     return {
         **slot,
         "label": _format_slot(slot),
@@ -106,7 +108,15 @@ def _slot_state(slot, queue_entries, tas_active, avg_help_minutes):
 
 def _slot_wait(slot, queue_entries, tas_active, avg_help_minutes):
     waiting = [entry for entry in queue_entries if entry.get("status") == "waiting" and entry.get("slotId") == slot.get("id")]
-    return estimate_wait(waiting, tas_active, avg_help_minutes)
+    return estimate_wait(waiting, _section_ta_count(slot, tas_active), avg_help_minutes)
+
+
+def _section_ta_count(slot, fallback):
+    if slot and "participantTaIds" in slot:
+        return len(slot.get("participantTaIds") or [])
+    if slot and "taIds" in slot:
+        return len(slot.get("taIds") or [])
+    return max(1, int(fallback or 1))
 
 
 def _position_for_student(waiting, student_id):

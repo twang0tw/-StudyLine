@@ -1,10 +1,17 @@
-"""Question triage helpers.
+"""Question triage helpers with an optional OpenAI-backed analysis."""
 
-The app can work without an AI key. This local fallback keeps the queue usable
-while still returning the same response shape as an AI-backed implementation.
-"""
-
+import json
+import os
+from pathlib import Path
 from typing import Any
+
+from dotenv import load_dotenv
+from openai import OpenAI
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+load_dotenv(PROJECT_ROOT / ".env")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5-mini")
 
 
 def analyze_question(
@@ -14,6 +21,58 @@ def analyze_question(
     file: Any = None,
     accuracy: str = "low",
 ) -> dict[str, Any]:
+    if os.getenv("OPENAI_API_KEY"):
+        try:
+            return _analyze_with_openai(course, need, message, file)
+        except Exception:
+            # Queue entry must remain available if the model service is unavailable.
+            pass
+
+    return _analyze_locally(course, need, message, file)
+
+
+def _analyze_with_openai(course, need, message, file) -> dict[str, Any]:
+    attachment = ""
+    if file:
+        attachment = f"\nAttachment metadata: {file.get('name', 'file')} ({file.get('type', 'unknown')})"
+    response = OpenAI(timeout=8.0).responses.create(
+        model=OPENAI_MODEL,
+        instructions=(
+            "Triage an office-hours question. Summarize the student's need in one short sentence, "
+            "choose up to three concise topic tags, and estimate 3-25 minutes of TA help."
+        ),
+        input=f"Course: {course or 'General'}\nNeed: {need or 'Office hours help'}\nQuestion: {message or 'No details'}{attachment}",
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "office_hours_triage",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "summary": {"type": "string"},
+                        "tags": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
+                        "estimatedHelpMinutes": {"type": "integer", "minimum": 3, "maximum": 25},
+                        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+                    },
+                    "required": ["summary", "tags", "estimatedHelpMinutes", "confidence"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        store=False,
+    )
+    result = json.loads(response.output_text)
+    return {
+        "summary": str(result["summary"]).strip()[:240],
+        "tags": [str(tag).strip()[:40] for tag in result["tags"][:3]],
+        "estimatedHelpMinutes": max(3, min(25, int(result["estimatedHelpMinutes"]))),
+        "confidence": result["confidence"],
+        "source": "openai",
+    }
+
+
+def _analyze_locally(course, need, message, file) -> dict[str, Any]:
     text = " ".join(part for part in [course, need, message] if part).lower()
     minutes = 7
     confidence = "medium"

@@ -68,6 +68,11 @@ def me(x_user_token: str | None = Header(default=None, alias="X-User-Token")):
     return {"user": db_service.serialize(user)}
 
 
+@router.delete("/api/auth/session")
+def logout(x_user_token: str | None = Header(default=None, alias="X-User-Token")):
+    return {"signedOut": db_service.logout_user(x_user_token)}
+
+
 @router.patch("/api/auth/profile")
 def update_profile(
     payload: ProfileUpdateRequest,

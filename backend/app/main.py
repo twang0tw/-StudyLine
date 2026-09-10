@@ -20,7 +20,11 @@ app.include_router(routes_ta.router)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ALLOWED_FRONTEND_FILES = {"index.html", "student.html", "ta.html", "settings.html", "settings.js", "navigation.js", "app.js", "styles.css"}
-NO_CACHE_HEADERS = {"Cache-Control": "no-store, max-age=0, must-revalidate"}
+NO_CACHE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, max-age=0, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
 
 
 @app.on_event("startup")
@@ -58,7 +62,7 @@ def home_page():
 def brand_asset(file_name: str):
     if file_name not in {"studyline_tab_icon.png", "studyline_large_logo.png"}:
         raise HTTPException(status_code=404, detail="Not found")
-    return FileResponse(PROJECT_ROOT / "assets" / file_name)
+    return FileResponse(PROJECT_ROOT / "assets" / file_name, headers=NO_CACHE_HEADERS)
 
 
 @app.get("/{file_name}")

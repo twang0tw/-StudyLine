@@ -13,6 +13,7 @@ router = APIRouter(tags=["slots"])
 
 class CreateAvailabilityRequest(BaseModel):
     course_id: str | None = Field(default=None, alias="courseId")
+    title: str = Field(default="", max_length=120)
     date: str
     start_time: str = Field(default="09:00", alias="startTime")
     end_time: str = Field(default="09:30", alias="endTime")
@@ -42,11 +43,18 @@ def list_slots(course_id: Optional[str] = Query(default=None, alias="courseId"))
 @router.get("/api/slots/{slot_id}/overview")
 def slot_overview(slot_id: str):
     waiting = db_service.list_waiting_entries(slot_id)
+    section = db_service.find_slot(slot_id)
     settings = db_service.get_settings()
-    wait = estimate_wait(waiting, settings["tasActive"], settings["averageHelpMinutes"])
+    if section and "participantTaIds" in section:
+        ta_count = len(section.get("participantTaIds") or [])
+    elif section:
+        ta_count = len(section.get("taIds") or [])
+    else:
+        ta_count = settings["tasActive"]
+    wait = estimate_wait(waiting, ta_count, settings["averageHelpMinutes"])
     return {
         "students_waiting": len(waiting),
-        "tas_active": settings["tasActive"],
+        "tas_active": ta_count,
         "average_help_minutes": settings["averageHelpMinutes"],
         "estimated_wait_minutes": wait,
         "crowd": crowd_level(wait),
@@ -71,6 +79,7 @@ def create_availability(
         end_time=payload.end_time,
         location=payload.location,
         zoom_link=payload.zoom_link,
+        title=payload.title,
     )
     return {"slots": [db_service.serialize(section)], "section": db_service.serialize(section)}
 

@@ -11,6 +11,9 @@ MONGO_URL="mongodb+srv://<username>:<password>@<cluster-url>/?retryWrites=true&w
 MONGO_DB_NAME="studyline"
 DB_RETENTION_DAYS=30
 GOOGLE_CLIENT_ID="YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+# Optional: enables model-backed queue summaries and estimates.
+OPENAI_API_KEY="YOUR_OPENAI_API_KEY"
+OPENAI_MODEL="gpt-5-mini"
 ```
 
 Install dependencies:

@@ -217,6 +217,18 @@ h3 {
   font-size: 1rem;
 }
 
+.section-access {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.zoom-link {
+  width: fit-content;
+  color: var(--blue);
+  overflow-wrap: anywhere;
+}
+
 .status-pill::after {
   content: "";
   position: absolute;

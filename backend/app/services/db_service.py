@@ -124,6 +124,12 @@ def user_for_token(token: str | None) -> Optional[dict[str, Any]]:
     return users_collection.find_one({"id": session["userId"]}, {"_id": 0})
 
 
+def logout_user(token: str | None) -> bool:
+    if not token:
+        return False
+    return sessions_collection.delete_one({"token": token}).deleted_count > 0
+
+
 def update_user_profile(user_id: str, name: str, preferences: dict[str, Any]) -> dict[str, Any]:
     """Update the editable profile fields while preserving account identity."""
     cleaned_name = " ".join((name or "").strip().split())
@@ -230,6 +236,7 @@ def create_section(
     end_time: str,
     location: str,
     zoom_link: str = "",
+    title: str = "",
 ) -> dict[str, Any]:
     course = course_by_id(course_id)
     if not course:
@@ -246,8 +253,9 @@ def create_section(
     )
     section["id"] = f"section-{uuid4()}"
     section["endTime"] = end_time[:5]
+    section["title"] = title.strip() or f"{user.get('name') or 'TA'}'s Office Hour"
     section["zoomLink"] = zoom_link.strip()
-    section["taIds"] = list({user["id"], *course.get("taIds", [])})
+    section["taIds"] = [user["id"]]
     section["participantTaIds"] = [user["id"]]
     section["participantStudentIds"] = []
     section["createdBy"] = user["id"]
@@ -265,7 +273,7 @@ def update_section(section_id: str, updates: dict[str, Any]) -> Optional[dict[st
     if not section:
         return None
 
-    allowed = {"courseId", "date", "startTime", "endTime", "location", "zoomLink", "status"}
+    allowed = {"courseId", "title", "date", "startTime", "endTime", "location", "zoomLink", "status"}
     next_values = {key: value for key, value in updates.items() if key in allowed and value is not None}
     if "courseId" in next_values:
         course = course_by_id(next_values["courseId"])
@@ -275,7 +283,7 @@ def update_section(section_id: str, updates: dict[str, Any]) -> Optional[dict[st
             next_values.pop("courseId", None)
 
     labels = {
-        "date": "Date", "startTime": "Start time", "endTime": "End time",
+        "title": "Title", "date": "Date", "startTime": "Start time", "endTime": "End time",
         "location": "Location", "zoomLink": "Zoom link", "status": "Status",
         "courseCode": "Course",
     }

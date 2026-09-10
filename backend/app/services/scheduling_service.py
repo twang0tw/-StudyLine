@@ -81,6 +81,8 @@ def estimate_wait(
     tas_active: int = DEFAULT_TA_COUNT,
     average_help_minutes: int = DEFAULT_AVERAGE_HELP_MINUTES,
 ) -> int:
+    if not entries:
+        return 0
     safe_ta_count = max(1, int(tas_active or DEFAULT_TA_COUNT))
     total_time = sum(get_entry_help_minutes(entry, average_help_minutes) for entry in entries)
     return max(MIN_WAIT_MINUTES, round(total_time / safe_ta_count))
