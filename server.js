@@ -6,7 +6,7 @@ const crypto = require("crypto");
 loadEnvFile();
 
 const PORT = Number(process.env.PORT || 5174);
-const PUBLIC_DIR = __dirname;
+const PUBLIC_DIR = path.join(__dirname, "frontend");
 
 const today = new Date().toISOString().slice(0, 10);
 

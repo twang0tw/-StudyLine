@@ -45,7 +45,7 @@ const context = {{
   }},
 }};
 vm.createContext(context);
-vm.runInContext(fs.readFileSync("app.js", "utf8"), context);
+vm.runInContext(fs.readFileSync("frontend/app.js", "utf8"), context);
 process.stdout.write(String(vm.runInContext({json.dumps(expression)}, context)));
 """
     return subprocess.run(

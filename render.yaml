@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: studyline
+    runtime: python
+    plan: 0.5c-512mb
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: MONGO_URL
+        sync: false
+      - key: MONGO_DB_NAME
+        value: studyline
+      - key: DB_RETENTION_DAYS
+        value: "30"
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5-mini

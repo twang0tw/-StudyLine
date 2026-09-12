@@ -44,7 +44,25 @@ Create a Google OAuth 2.0 **Web application** client and replace the placeholder
 http://127.0.0.1:8010
 ```
 
+## Deploy on Render
+
+The repository includes a `render.yaml` Blueprint for an always-on live demo using Render's
+smallest paid web-service instance. In Render, create a **Blueprint**, connect this GitHub
+repository, and enter the requested secret values:
+
+- `MONGO_URL`: your MongoDB Atlas connection string.
+- `GOOGLE_CLIENT_ID`: the same Google OAuth web client ID used locally.
+- `OPENAI_API_KEY`: the server-side OpenAI API key used for AI summaries and estimates.
+
+After Render assigns the service URL, add its origin (for example,
+`https://studyline.onrender.com`) to the Google OAuth client's **Authorized JavaScript origins**.
+MongoDB Atlas must also allow connections from Render. Keep credentials in Render's environment
+settings; never commit `.env`.
+
+Every commit to the linked branch deploys automatically. Render checks `/health` and only sends
+traffic to a version that can connect to MongoDB.
+
 ## Main Pages
 
-- `student.html`: student login, course dashboard, shared-code join, live section queue.
-- `ta.html`: TA login, course dashboard, weekly section schedule, past participated sections, sharing, editing, live queue.
+- `frontend/student.html`: student login, course dashboard, shared-code join, live section queue.
+- `frontend/ta.html`: TA login, course dashboard, weekly section schedule, past participated sections, sharing, editing, live queue.
